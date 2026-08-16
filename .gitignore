@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Personal documentation
 /docs/
+
+# Local images - never commit
+/imagenes/
