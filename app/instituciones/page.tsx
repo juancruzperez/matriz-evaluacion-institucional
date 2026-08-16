@@ -3,8 +3,9 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { institutions } from "@/data/institutions"
-import { calculateInstitutionAssessment, type Criticality } from "@/lib/criticality"
-import type { Evaluation } from "@/types/evaluation"
+import { dimensions } from "@/data/evaluation-template"
+import { calculateInstitutionAssessment, URGENCY_WEIGHT, type Criticality } from "@/lib/criticality"
+import type { Evaluation, Urgency } from "@/types/evaluation"
 
 const STORAGE_KEY = "mei:evaluations"
 
@@ -14,6 +15,8 @@ const criticalityOrder: Record<Criticality, number> = {
   baja: 2,
   "sin-relevamiento": 3,
 }
+
+const urgencyWeight: Record<Urgency, number> = URGENCY_WEIGHT
 
 function readEvaluations(): Evaluation[] {
   try {
@@ -38,8 +41,66 @@ function daysSince(date: string | null) {
   return Math.max(0, diff)
 }
 
+function formatDate(date: string) {
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(`${date}T00:00:00`))
+}
+
+function urgencyLabel(value?: Urgency) {
+  if (!value) return "Sin urgencia registrada"
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function criticalityFromScore(score: number | null): Criticality {
+  if (score === null) return "sin-relevamiento"
+  if (score >= 0.75) return "alta"
+  if (score >= 0.5) return "media"
+  return "baja"
+}
+
+function dimensionAssessment(evaluation: Evaluation, dimensionId: string) {
+  const dimension = dimensions.find((item) => item.id === dimensionId)
+  if (!dimension) return null
+
+  const values = dimension.indicators
+    .map((indicator) => evaluation.responses[indicator.id]?.urgency)
+    .filter((urgency): urgency is Urgency => Boolean(urgency))
+    .map((urgency) => urgencyWeight[urgency])
+
+  const score = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+  return {
+    score,
+    criticality: criticalityFromScore(score),
+  }
+}
+
+function dimensionEntries(evaluation: Evaluation, dimensionId: string) {
+  const dimension = dimensions.find((item) => item.id === dimensionId)
+  if (!dimension) return []
+
+  return dimension.indicators.flatMap((indicator) => {
+    const response = evaluation.responses[indicator.id]
+    if (!response) return []
+    const fields = Object.entries(response.fields ?? {})
+      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
+      .filter((value) => !value.endsWith(": "))
+
+    const entries: string[] = []
+    if (response.observation.trim()) entries.push(response.observation.trim())
+    if (response.strengths?.trim()) entries.push(`Fortaleza: ${response.strengths.trim()}`)
+    if (fields.length) entries.push(fields.join(" · "))
+    if (response.urgency) entries.push(`Urgencia: ${urgencyLabel(response.urgency)}`)
+
+    return entries.length ? [{ indicator: indicator.title, entries }] : []
+  })
+}
+
 export default function InstitutionsPage() {
   const [evaluations, setEvaluations] = useState<Evaluation[]>([])
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   useEffect(() => {
     const refresh = () => setEvaluations(readEvaluations())
@@ -57,6 +118,9 @@ export default function InstitutionsPage() {
       .map((institution) => ({
         institution,
         assessment: calculateInstitutionAssessment(institution.id, evaluations),
+        institutionEvaluations: evaluations
+          .filter((evaluation) => evaluation.institutionId === institution.id)
+          .sort((a, b) => b.date.localeCompare(a.date) || b.version - a.version),
       }))
       .sort((a, b) => {
         const categoryDifference = criticalityOrder[a.assessment.criticality] - criticalityOrder[b.assessment.criticality]
@@ -96,31 +160,168 @@ export default function InstitutionsPage() {
       </section>
 
       <section className="institution-card-grid" aria-label="Instituciones del Circuito 3">
-        {assessments.map(({ institution, assessment }) => (
-          <article className={`institution-card criticality-${assessment.criticality}`} key={institution.id}>
-            <div className="institution-card-top">
-              <span className={`criticality-badge ${assessment.criticality}`}>
-                {criticalityLabel(assessment.criticality)}
-              </span>
-              {assessment.evaluationCount > 0 && <span className="institution-evaluation-count">{assessment.evaluationCount} relevamiento{assessment.evaluationCount === 1 ? "" : "s"}</span>}
-            </div>
-            <h2>{institution.name}</h2>
-            <p>{institution.address} · {institution.sector}</p>
-            <div className="institution-meta">
-              <span>CUE: {institution.cue || "No disponible"}</span>
-              <span>{institution.levels.map((level) => level.level).join(" · ")}</span>
-            </div>
-            <div className="institution-card-footer">
-              <small>{assessment.lastDate ? `Hace ${daysSince(assessment.lastDate)} ${daysSince(assessment.lastDate) === 1 ? "día" : "días"}` : "Nunca relevada"}</small>
-              <Link
-                className={assessment.evaluationCount > 0 ? "secondary-button institution-action" : "primary-button institution-action"}
-                href={`/relevamientos/nuevo?institution=${encodeURIComponent(institution.id)}`}
-              >
-                {assessment.evaluationCount > 0 ? "Actualizar situación" : "Iniciar relevamiento"}
-              </Link>
-            </div>
-          </article>
-        ))}
+        {assessments.map(({ institution, assessment, institutionEvaluations }) => {
+          const isExpanded = expandedId === institution.id
+          const lastEvaluation = institutionEvaluations[0]
+
+          return (
+            <article className={`institution-card-wrap ${isExpanded ? "is-expanded" : ""}`} key={institution.id}>
+              <article className={`institution-card criticality-${assessment.criticality}`}>
+                <div className="institution-card-top">
+                  <span className={`criticality-badge ${assessment.criticality}`}>
+                    {criticalityLabel(assessment.criticality)}
+                  </span>
+                  {assessment.evaluationCount > 0 && <span className="institution-evaluation-count">{assessment.evaluationCount} relevamiento{assessment.evaluationCount === 1 ? "" : "s"}</span>}
+                </div>
+                <button
+                  type="button"
+                  className="institution-name-button"
+                  aria-expanded={isExpanded}
+                  onClick={() => setExpandedId(isExpanded ? null : institution.id)}
+                >
+                  {institution.name}
+                </button>
+                <p>{institution.address} · {institution.sector}</p>
+                <div className="institution-meta">
+                  <span>CUE: {institution.cue || "No disponible"}</span>
+                  <span>{institution.levels.map((level) => level.level).join(" · ")}</span>
+                </div>
+                <div className="institution-card-footer">
+                  <small>{assessment.lastDate ? `Hace ${daysSince(assessment.lastDate)} ${daysSince(assessment.lastDate) === 1 ? "día" : "días"}` : "Nunca relevada"}</small>
+                  <Link
+                    className={assessment.evaluationCount > 0 ? "secondary-button institution-action" : "primary-button institution-action"}
+                    href={`/relevamientos/nuevo?institution=${encodeURIComponent(institution.id)}`}
+                  >
+                    {assessment.evaluationCount > 0 ? "Actualizar situación" : "Iniciar relevamiento"}
+                  </Link>
+                </div>
+              </article>
+
+              {isExpanded && (
+                <section className="institution-context" aria-label={`Detalle de ${institution.name}`}>
+                  <div className="context-header">
+                    <div>
+                      <p className="eyebrow">DETALLE INSTITUCIONAL</p>
+                      <h2>{institution.name}</h2>
+                    </div>
+                    <button type="button" className="context-close" onClick={() => setExpandedId(null)}>Cerrar</button>
+                  </div>
+
+                  <div className="context-info-grid">
+                    <div><span>CUE</span><strong>{institution.cue || "No disponible"}</strong></div>
+                    <div><span>Domicilio</span><strong>{institution.address || "No disponible"}</strong></div>
+                    <div><span>Sector</span><strong>{institution.sector || "No disponible"}</strong></div>
+                    <div><span>Relevamientos</span><strong>{institutionEvaluations.length}</strong></div>
+                    <div><span>Último relevamiento</span><strong>{assessment.lastDate ? `Hace ${daysSince(assessment.lastDate)} ${daysSince(assessment.lastDate) === 1 ? "día" : "días"}` : "Nunca relevada"}</strong></div>
+                    <div><span>Último estado</span><strong>{lastEvaluation ? (lastEvaluation.status === "closed" ? "Cerrado" : "En curso") : "Sin relevamiento"}</strong></div>
+                  </div>
+
+                  <div className="context-block">
+                    <div className="context-block-heading">
+                      <h3>Situación actual</h3>
+                      <span className={`criticality-badge ${assessment.criticality}`}>{criticalityLabel(assessment.criticality)}</span>
+                    </div>
+                    <div className="dimension-status-grid">
+                      {dimensions.map((dimension) => {
+                        const latestForDimension = institutionEvaluations
+                          .map((evaluation) => ({ evaluation, assessment: dimensionAssessment(evaluation, dimension.id) }))
+                          .find((item) => item.assessment?.score !== null)
+                        const current = latestForDimension?.assessment ?? null
+                        return (
+                          <div className="dimension-status" key={dimension.id}>
+                            <span>{dimension.title}</span>
+                            <strong className={`status-text ${current?.criticality ?? "sin-relevamiento"}`}>
+                              {criticalityLabel(current?.criticality ?? "sin-relevamiento")}
+                            </strong>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="context-block">
+                    <h3>Información derivada de los relevamientos</h3>
+                    {institutionEvaluations.length === 0 ? (
+                      <p className="muted">Todavía no hay información derivada.</p>
+                    ) : (
+                      <div className="derived-grid">
+                        {dimensions.map((dimension) => {
+                          const entries = institutionEvaluations.flatMap((evaluation) =>
+                            dimensionEntries(evaluation, dimension.id).map((entry) => ({ ...entry, date: evaluation.date, version: evaluation.version })),
+                          )
+                          return (
+                            <article className="derived-dimension" key={dimension.id}>
+                              <h4>{dimension.title}</h4>
+                              {entries.length === 0 ? (
+                                <p className="muted">Sin observaciones registradas.</p>
+                              ) : (
+                                entries.slice(0, 8).map((entry, index) => (
+                                  <div className="derived-entry" key={`${entry.date}-${entry.version}-${entry.indicator}-${index}`}>
+                                    <strong>{entry.indicator}</strong>
+                                    <small>{formatDate(entry.date)} · v{entry.version}</small>
+                                    <ul>{entry.entries.map((text, textIndex) => <li key={textIndex}>{text}</li>)}</ul>
+                                  </div>
+                                ))
+                              )}
+                            </article>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="context-block">
+                    <h3>Evolución por relevamiento</h3>
+                    {institutionEvaluations.length < 2 ? (
+                      <p className="muted">Se necesitan al menos dos relevamientos para mostrar evolución.</p>
+                    ) : (
+                      <div className="evolution-table-wrap">
+                        <table className="evolution-table">
+                          <thead><tr><th>Dimensión</th><th>{formatDate(institutionEvaluations[1].date)}</th><th>{formatDate(institutionEvaluations[0].date)}</th></tr></thead>
+                          <tbody>
+                            {dimensions.map((dimension) => {
+                              const previous = dimensionAssessment(institutionEvaluations[1], dimension.id)?.criticality ?? "sin-relevamiento"
+                              const current = dimensionAssessment(institutionEvaluations[0], dimension.id)?.criticality ?? "sin-relevamiento"
+                              return <tr key={dimension.id}><td>{dimension.title}</td><td><span className={`status-text ${previous}`}>{criticalityLabel(previous)}</span></td><td><span className={`status-text ${current}`}>{criticalityLabel(current)}</span></td></tr>
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="context-block">
+                    <div className="context-block-heading">
+                      <h3>Información institucional</h3>
+                    </div>
+                    <div className="levels-list">
+                      {institution.levels.map((level) => (
+                        <div key={`${level.level}-${level.empresa}`}><strong>{level.level}</strong><span>EMPRESA {level.empresa}</span></div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="context-block">
+                    <h3>Historial de relevamientos</h3>
+                    {institutionEvaluations.length === 0 ? (
+                      <p className="muted">No hay relevamientos registrados.</p>
+                    ) : (
+                      <div className="evaluation-history">
+                        {institutionEvaluations.map((evaluation) => (
+                          <div className="evaluation-history-row" key={evaluation.id}>
+                            <div><strong>{formatDate(evaluation.date)}</strong><span>{evaluation.level || "Toda la institución"}</span></div>
+                            <div><span>v{evaluation.version}</span><span className={`history-status ${evaluation.status}`}>{evaluation.status === "closed" ? "Cerrado" : "En curso"}</span></div>
+                            <Link className="secondary-button" href={`/relevamientos/nuevo?id=${encodeURIComponent(evaluation.id)}`}>{evaluation.status === "closed" ? "Consultar" : "Continuar"}</Link>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+            </article>
+          )
+        })}
       </section>
     </main>
   )
