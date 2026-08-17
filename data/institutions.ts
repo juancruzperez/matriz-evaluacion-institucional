@@ -1,30 +1,16 @@
-export type InstitutionLevel = {
-  level: string
-  empresa: string
-}
-
-export type Institution = {
-  id: string
-  name: string
-  empresa: string
-  cue: string
-  levelSource: string
-  sector: string
-  address: string
-  levels: InstitutionLevel[]
-}
+import type { Institution } from "@/types/institution"
 
 export const institutions: Institution[] = [
   {
     "id": "inst-001",
     "name": "C.E.N.M.A. BATERIA LIBERTAD ANEXO SEDE AGENCIA CORDOBA DEPORTE",
-    "empresa": "EE0117213",
     "cue": "140564803",
-    "levelSource": "7. Jóvenes y Adultos - Secundario",
     "sector": "Estatal",
     "address": "AV. COLON 778",
     "levels": [
       {
+        "id": "inst-001-level-001",
+        "institutionId": "inst-001",
         "level": "Secundario",
         "empresa": "EE0117213"
       }
@@ -33,13 +19,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-002",
     "name": "C.E.N.M.A. N° 135 - ANEXO SEDE ALECYT",
-    "empresa": "EE0117152",
     "cue": "140236405",
-    "levelSource": "7. Jóvenes y Adultos - Secundario",
     "sector": "Estatal",
     "address": "9 DE JULIO 975",
     "levels": [
       {
+        "id": "inst-002-level-001",
+        "institutionId": "inst-002",
         "level": "Secundario",
         "empresa": "EE0117152"
       }
@@ -48,13 +34,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-003",
     "name": "C.E.N.M.A. Nº 135",
-    "empresa": "EE0110093",
     "cue": "140236400",
-    "levelSource": "7. Jóvenes y Adultos - Secundario",
     "sector": "Estatal",
     "address": "SANTA ROSA 1299",
     "levels": [
       {
+        "id": "inst-003-level-001",
+        "institutionId": "inst-003",
         "level": "Secundario",
         "empresa": "EE0110093"
       }
@@ -63,13 +49,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-004",
     "name": "C.E.N.M.A. Nº 232",
-    "empresa": "EE0117273",
     "cue": "140194208",
-    "levelSource": "7. Jóvenes y Adultos - Secundario",
     "sector": "Estatal",
     "address": "LA RIOJA 1450",
     "levels": [
       {
+        "id": "inst-004-level-001",
+        "institutionId": "inst-004",
         "level": "Secundario",
         "empresa": "EE0117273"
       }
@@ -78,13 +64,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-005",
     "name": "C.E.N.M.A. Nº 70 COMPAÑERO HUGO ESTANISLAO OCHOA",
-    "empresa": "EE0110088",
     "cue": "140061800",
-    "levelSource": "7. Jóvenes y Adultos - Secundario",
     "sector": "Estatal",
     "address": "SANTA ROSA 650",
     "levels": [
       {
+        "id": "inst-005-level-001",
+        "institutionId": "inst-005",
         "level": "Secundario",
         "empresa": "EE0110088"
       }
@@ -93,13 +79,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-006",
     "name": "COLEGIO AMPARO DE MARIA",
-    "empresa": "EE1110025",
     "cue": "140397200",
-    "levelSource": "1. Común - Primario",
     "sector": "Privado",
     "address": "CASEROS 730",
     "levels": [
       {
+        "id": "inst-006-level-001",
+        "institutionId": "inst-006",
         "level": "Primario",
         "empresa": "EE1110025"
       }
@@ -108,17 +94,19 @@ export const institutions: Institution[] = [
   {
     "id": "inst-007",
     "name": "COLEGIO DE SAN JOSE (H.H.DOMINICAS)",
-    "empresa": "",
     "cue": "",
-    "levelSource": "0. Común - Inicial,1. Común - Primario",
     "sector": "Privado",
     "address": "MARIANO MORENO 108",
     "levels": [
       {
+        "id": "inst-007-level-001",
+        "institutionId": "inst-007",
         "level": "Inicial",
         "empresa": ""
       },
       {
+        "id": "inst-007-level-002",
+        "institutionId": "inst-007",
         "level": "Primario",
         "empresa": ""
       }
@@ -127,13 +115,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-008",
     "name": "COLEGIO EVANGELICO WILLIAM C. MORRIS",
-    "empresa": "EE1110024",
     "cue": "140278400",
-    "levelSource": "1. Común - Primario",
     "sector": "Privado",
     "address": "SAN JOSE DE CALASANZ 144",
     "levels": [
       {
+        "id": "inst-008-level-001",
+        "institutionId": "inst-008",
         "level": "Primario",
         "empresa": "EE1110024"
       }
@@ -142,13 +130,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-009",
     "name": "COLEGIO LA PRIMERA ENSEÑANZA",
-    "empresa": "EE1111008",
     "cue": "140283700",
-    "levelSource": "1. Común - Primario",
     "sector": "Privado",
     "address": "LA RIOJA 1276",
     "levels": [
       {
+        "id": "inst-009-level-001",
+        "institutionId": "inst-009",
         "level": "Primario",
         "empresa": "EE1111008"
       }
@@ -157,13 +145,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-010",
     "name": "COLEGIO MUSICAL COLLEGIUM",
-    "empresa": "EE1110093",
     "cue": "140427000",
-    "levelSource": "1. Común - Primario",
     "sector": "Privado",
     "address": "CASEROS 963",
     "levels": [
       {
+        "id": "inst-010-level-001",
+        "institutionId": "inst-010",
         "level": "Primario",
         "empresa": "EE1110093"
       }
@@ -172,13 +160,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-011",
     "name": "COLEGIO PIO X",
-    "empresa": "EE1110035",
     "cue": "140058100",
-    "levelSource": "1. Común - Primario",
     "sector": "Privado",
     "address": "9 DE JULIO 1050",
     "levels": [
       {
+        "id": "inst-011-level-001",
+        "institutionId": "inst-011",
         "level": "Primario",
         "empresa": "EE1110035"
       }
@@ -187,17 +175,19 @@ export const institutions: Institution[] = [
   {
     "id": "inst-012",
     "name": "COLEGIO SANTO TOMAS",
-    "empresa": "EE1110041 primario\nEE1510041 inicial",
     "cue": "140397300",
-    "levelSource": "0. Común - Inicial,1. Común - Primario",
     "sector": "Privado",
     "address": "CASEROS 745",
     "levels": [
       {
+        "id": "inst-012-level-001",
+        "institutionId": "inst-012",
         "level": "Primario",
         "empresa": "EE1110041"
       },
       {
+        "id": "inst-012-level-002",
+        "institutionId": "inst-012",
         "level": "Inicial",
         "empresa": "EE1510041"
       }
@@ -206,13 +196,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-013",
     "name": "DOCTOR EMILIO BAQUERO LAZCANO ANEXO EN ESCUELA SUPERIOR DE COMERCIO MANUEL BELGRANO",
-    "empresa": "EE3400008",
     "cue": "140095501",
-    "levelSource": "6. Jóvenes y Adultos - Primario",
     "sector": "Estatal",
     "address": "LA RIOJA 1450",
     "levels": [
       {
+        "id": "inst-013-level-001",
+        "institutionId": "inst-013",
         "level": "Primario",
         "empresa": "EE3400008"
       }
@@ -221,25 +211,31 @@ export const institutions: Institution[] = [
   {
     "id": "inst-014",
     "name": "ESC. NORMAL SUPERIOR ALEJANDRO CARBO",
-    "empresa": "EE0330329 inicial\nEE0330330 primario\nEE0330331 secundario\nEE0330332 superior",
     "cue": "140333800",
-    "levelSource": "0. Común - Inicial,1. Común - Primario,2. Común - Secundario,3. Común - Superior",
     "sector": "Estatal",
     "address": "AV COLON 951",
     "levels": [
       {
+        "id": "inst-014-level-001",
+        "institutionId": "inst-014",
         "level": "Inicial",
         "empresa": "EE0330329"
       },
       {
+        "id": "inst-014-level-002",
+        "institutionId": "inst-014",
         "level": "Primario",
         "empresa": "EE0330330"
       },
       {
+        "id": "inst-014-level-003",
+        "institutionId": "inst-014",
         "level": "Secundario",
         "empresa": "EE0330331"
       },
       {
+        "id": "inst-014-level-004",
+        "institutionId": "inst-014",
         "level": "Superior",
         "empresa": "EE0330332"
       }
@@ -248,13 +244,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-015",
     "name": "ESCUELA MARIANO MORENO",
-    "empresa": "",
     "cue": "",
-    "levelSource": "1. Común - Primario",
     "sector": "Estatal",
     "address": "SANTA ROSA 1299",
     "levels": [
       {
+        "id": "inst-015-level-001",
+        "institutionId": "inst-015",
         "level": "Primario",
         "empresa": ""
       }
@@ -263,13 +259,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-016",
     "name": "I.P.E.M. Nº 115 DOMINGO FAUSTINO SARMIENTO",
-    "empresa": "EE0310540",
     "cue": "140280600",
-    "levelSource": "2. Común - Secundario",
     "sector": "Estatal",
     "address": "AV. COLON 1329",
     "levels": [
       {
+        "id": "inst-016-level-001",
+        "institutionId": "inst-016",
         "level": "Secundario",
         "empresa": "EE0310540"
       }
@@ -278,13 +274,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-017",
     "name": "I.P.E.M. Nº 138 JERONIMO LUIS DE CABRERA",
-    "empresa": "EE0310601",
     "cue": "140396900",
-    "levelSource": "2. Común - Secundario",
     "sector": "Estatal",
     "address": "SANTA ROSA 650",
     "levels": [
       {
+        "id": "inst-017-level-001",
+        "institutionId": "inst-017",
         "level": "Secundario",
         "empresa": "EE0310601"
       }
@@ -293,13 +289,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-018",
     "name": "I.P.E.M. Nº 270 GRAL. MANUEL BELGRANO",
-    "empresa": "EE0320007",
     "cue": "140333700",
-    "levelSource": "2. Común - Secundario",
     "sector": "Estatal",
     "address": "DEAN FUNES 850",
     "levels": [
       {
+        "id": "inst-018-level-001",
+        "institutionId": "inst-018",
         "level": "Secundario",
         "empresa": "EE0320007"
       }
@@ -308,13 +304,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-019",
     "name": "I.P.E.T. Nº 247 ING. CARLOS CASSAFFOUSTH",
-    "empresa": "EE0320014",
     "cue": "140280300",
-    "levelSource": "2. Común - Secundario",
     "sector": "Estatal",
     "address": "DEAN FUNES 1511",
     "levels": [
       {
+        "id": "inst-019-level-001",
+        "institutionId": "inst-019",
         "level": "Secundario",
         "empresa": "EE0320014"
       }
@@ -323,13 +319,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-020",
     "name": "INST. P/ADULTOS WILLIAM C.MORRIS",
-    "empresa": "EE1210949",
     "cue": "140280500",
-    "levelSource": "7. Jóvenes y Adultos - Secundario",
     "sector": "Privado",
     "address": "SAN JOSE DE CALAZANZ 144",
     "levels": [
       {
+        "id": "inst-020-level-001",
+        "institutionId": "inst-020",
         "level": "Secundario",
         "empresa": "EE1210949"
       }
@@ -338,17 +334,19 @@ export const institutions: Institution[] = [
   {
     "id": "inst-021",
     "name": "INST. SUP. COLLEGIUM - CENTRO DE EDUC.E INVEST.MUSICALES",
-    "empresa": "EE1310972",
     "cue": "140397000",
-    "levelSource": "3. Común - Superior,8. Artística",
     "sector": "Privado",
     "address": "CASEROS 963",
     "levels": [
       {
+        "id": "inst-021-level-001",
+        "institutionId": "inst-021",
         "level": "Superior",
         "empresa": ""
       },
       {
+        "id": "inst-021-level-002",
+        "institutionId": "inst-021",
         "level": "Artística",
         "empresa": ""
       }
@@ -357,13 +355,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-022",
     "name": "INST. SUP. MARIANO MORENO",
-    "empresa": "EE1311024",
     "cue": "140270700",
-    "levelSource": "3. Común - Superior",
     "sector": "Privado",
     "address": "LA RIOJA 1019",
     "levels": [
       {
+        "id": "inst-022-level-001",
+        "institutionId": "inst-022",
         "level": "Superior",
         "empresa": "EE1311024"
       }
@@ -372,13 +370,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-023",
     "name": "INST.SECUNDARIO EVANGELICO WILLIAM C. MORRIS",
-    "empresa": "EE1210905",
     "cue": "140280400",
-    "levelSource": "2. Común - Secundario",
     "sector": "Privado",
     "address": "SAN JOSE DE CALASANZ 144",
     "levels": [
       {
+        "id": "inst-023-level-001",
+        "institutionId": "inst-023",
         "level": "Secundario",
         "empresa": "EE1210905"
       }
@@ -387,13 +385,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-024",
     "name": "INSTITUCION CERVANTES",
-    "empresa": "EE1311022",
     "cue": "140443500",
-    "levelSource": "3. Común - Superior",
     "sector": "Privado",
     "address": "SANTA ROSA 1793",
     "levels": [
       {
+        "id": "inst-024-level-001",
+        "institutionId": "inst-024",
         "level": "Superior",
         "empresa": "EE1311022"
       }
@@ -402,13 +400,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-025",
     "name": "INSTITUTO DE SAN JOSE (H.H.DOMINICAS)",
-    "empresa": "",
     "cue": "",
-    "levelSource": "2. Común - Secundario",
     "sector": "Privado",
     "address": "MARIANO MORENO 108",
     "levels": [
       {
+        "id": "inst-025-level-001",
+        "institutionId": "inst-025",
         "level": "Secundario",
         "empresa": ""
       }
@@ -417,13 +415,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-026",
     "name": "INSTITUTO INTEGRAL MODELO",
-    "empresa": "EE1230061",
     "cue": "140270500",
-    "levelSource": "2. Común - Secundario",
     "sector": "Privado",
     "address": "RODRIGUEZ PEÑA 227",
     "levels": [
       {
+        "id": "inst-026-level-001",
+        "institutionId": "inst-026",
         "level": "Secundario",
         "empresa": "EE1230061"
       }
@@ -432,13 +430,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-027",
     "name": "INSTITUTO LA PRIMERA ENSEÑANZA",
-    "empresa": "EE1211008",
     "cue": "140467900",
-    "levelSource": "2. Común - Secundario",
     "sector": "Privado",
     "address": "LA RIOJA 1276",
     "levels": [
       {
+        "id": "inst-027-level-001",
+        "institutionId": "inst-027",
         "level": "Secundario",
         "empresa": "EE1211008"
       }
@@ -447,13 +445,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-028",
     "name": "INSTITUTO MUSICAL COLLEGIUM",
-    "empresa": "EE1210972",
     "cue": "140473300",
-    "levelSource": "2. Común - Secundario",
     "sector": "Privado",
     "address": "CASEROS 963",
     "levels": [
       {
+        "id": "inst-028-level-001",
+        "institutionId": "inst-028",
         "level": "Secundario",
         "empresa": "EE1210972"
       }
@@ -462,13 +460,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-029",
     "name": "INSTITUTO PIO X",
-    "empresa": "EE1230058",
     "cue": "140061700",
-    "levelSource": "2. Común - Secundario",
     "sector": "Privado",
     "address": "9 DE JULIO 1050",
     "levels": [
       {
+        "id": "inst-029-level-001",
+        "institutionId": "inst-029",
         "level": "Secundario",
         "empresa": "EE1230058"
       }
@@ -477,13 +475,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-030",
     "name": "INSTITUTO SALESIANO PIO X-NIVEL SUPERIOR-",
-    "empresa": "EE1350017",
     "cue": "140342100",
-    "levelSource": "3. Común - Superior",
     "sector": "Privado",
     "address": "AV COLON 1051",
     "levels": [
       {
+        "id": "inst-030-level-001",
+        "institutionId": "inst-030",
         "level": "Superior",
         "empresa": "EE1350017"
       }
@@ -492,13 +490,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-031",
     "name": "INSTITUTO SANTO TOMAS",
-    "empresa": "EE1230054",
     "cue": "140395200",
-    "levelSource": "2. Común - Secundario",
     "sector": "Privado",
     "address": "CASEROS 745",
     "levels": [
       {
+        "id": "inst-031-level-001",
+        "institutionId": "inst-031",
         "level": "Secundario",
         "empresa": "EE1230054"
       }
@@ -507,13 +505,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-032",
     "name": "J.DE INF. AMPARO DE MARIA",
-    "empresa": "EE1510025",
     "cue": "140422900",
-    "levelSource": "0. Común - Inicial",
     "sector": "Privado",
     "address": "CASEROS 730",
     "levels": [
       {
+        "id": "inst-032-level-001",
+        "institutionId": "inst-032",
         "level": "Inicial",
         "empresa": "EE1510025"
       }
@@ -522,13 +520,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-033",
     "name": "J.DE INF. COLLEGIUM",
-    "empresa": "EE1510093",
     "cue": "140477100",
-    "levelSource": "0. Común - Inicial",
     "sector": "Privado",
     "address": "CASEROS 963",
     "levels": [
       {
+        "id": "inst-033-level-001",
+        "institutionId": "inst-033",
         "level": "Inicial",
         "empresa": "EE1510093"
       }
@@ -537,13 +535,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-034",
     "name": "J.DE INF. LA PRIMERA ENSEÑANZA",
-    "empresa": "EE1511008",
     "cue": "140565400",
-    "levelSource": "0. Común - Inicial",
     "sector": "Privado",
     "address": "LA RIOJA 1276",
     "levels": [
       {
+        "id": "inst-034-level-001",
+        "institutionId": "inst-034",
         "level": "Inicial",
         "empresa": "EE1511008"
       }
@@ -552,13 +550,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-035",
     "name": "J.DE INF. MARIANO MORENO",
-    "empresa": "",
     "cue": "",
-    "levelSource": "0. Común - Inicial",
     "sector": "Estatal",
     "address": "AV. SANTA FE 270",
     "levels": [
       {
+        "id": "inst-035-level-001",
+        "institutionId": "inst-035",
         "level": "Inicial",
         "empresa": ""
       }
@@ -567,13 +565,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-036",
     "name": "J.DE INF. PIO X",
-    "empresa": "EE1510035",
     "cue": "140575400",
-    "levelSource": "0. Común - Inicial",
     "sector": "Privado",
     "address": "9 DE JULIO 1050",
     "levels": [
       {
+        "id": "inst-036-level-001",
+        "institutionId": "inst-036",
         "level": "Inicial",
         "empresa": "EE1510035"
       }
@@ -582,13 +580,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-037",
     "name": "JARDIN MUNICIPAL DEODORO",
-    "empresa": "EE3500075",
     "cue": "140571500",
-    "levelSource": "0. Común - Inicial",
     "sector": "Estatal",
     "address": "ARTIGAS 150",
     "levels": [
       {
+        "id": "inst-037-level-001",
+        "institutionId": "inst-037",
         "level": "Inicial",
         "empresa": "EE3500075"
       }
@@ -597,21 +595,25 @@ export const institutions: Institution[] = [
   {
     "id": "inst-038",
     "name": "ESCUELA SUP. DE COMERCIO MANUEL BELGRANO",
-    "empresa": "",
     "cue": "",
-    "levelSource": "1. Común - Primario,2. Común - Secundario,3. Común - Superior",
     "sector": "Estatal",
     "address": "LA RIOJA 1450",
     "levels": [
       {
+        "id": "inst-038-level-001",
+        "institutionId": "inst-038",
         "level": "Primario",
         "empresa": ""
       },
       {
+        "id": "inst-038-level-002",
+        "institutionId": "inst-038",
         "level": "Secundario",
         "empresa": ""
       },
       {
+        "id": "inst-038-level-003",
+        "institutionId": "inst-038",
         "level": "Superior",
         "empresa": ""
       }
@@ -620,13 +622,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-039",
     "name": "INSTITUTO TECNICO SUPERIOR CORDOBA",
-    "empresa": "EE0310957",
     "cue": "1405441XX",
-    "levelSource": "3. Común - Superior",
     "sector": "Estatal",
     "address": "RIO NEGRO 77",
     "levels": [
       {
+        "id": "inst-039-level-001",
+        "institutionId": "inst-039",
         "level": "Superior",
         "empresa": "EE0310957"
       }
@@ -635,13 +637,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-040",
     "name": "J.DE INF. WILLIAN C. MORRIS",
-    "empresa": "EE1510024",
     "cue": "140330900",
-    "levelSource": "0. Común - Inicial",
     "sector": "Privado",
     "address": "SAN JOSE DE CALASANZ 142",
     "levels": [
       {
+        "id": "inst-040-level-001",
+        "institutionId": "inst-040",
         "level": "Inicial",
         "empresa": "EE1510024"
       }
@@ -650,13 +652,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-041",
     "name": "C.E.N.M.A. B º S.M.A.T.A. ANEXO SEDE SMATA",
-    "empresa": "EE0117015",
     "cue": "140542701",
-    "levelSource": "7. Jóvenes y Adultos - Secundario",
     "sector": "Estatal",
     "address": "27 DE ABRIL 633",
     "levels": [
       {
+        "id": "inst-041-level-001",
+        "institutionId": "inst-041",
         "level": "Secundario",
         "empresa": "EE0117015"
       }
@@ -665,13 +667,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-042",
     "name": "C.E.N.M.A. DEAN FUNES ANEXO SEDE CONCEJO DELIBERANTE",
-    "empresa": "EE0117228",
     "cue": "140511205",
-    "levelSource": "7. Jóvenes y Adultos - Secundario",
     "sector": "Estatal",
     "address": "PASAJE DE COMERCIO 447",
     "levels": [
       {
+        "id": "inst-042-level-001",
+        "institutionId": "inst-042",
         "level": "Secundario",
         "empresa": "EE0117228"
       }
@@ -680,13 +682,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-043",
     "name": "ESCUELA NOCTURNA MERCEDITAS DE SAN MARTIN EXT AULICA CONCEJO DELIBERANTE",
-    "empresa": "EE0111752",
     "cue": "140293802",
-    "levelSource": "6. Jóvenes y Adultos - Primario",
     "sector": "Estatal",
     "address": "PASAJE DE COMERCIO 447",
     "levels": [
       {
+        "id": "inst-043-level-001",
+        "institutionId": "inst-043",
         "level": "Primario",
         "empresa": "EE0111752"
       }
@@ -695,13 +697,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-044",
     "name": "INST. C.E.D.(CENTRO DE ESTUDIOS A DISTANCIA)",
-    "empresa": "EE1211005",
     "cue": "140470400",
-    "levelSource": "7. Jóvenes y Adultos - Secundario",
     "sector": "Privado",
     "address": "INDEPENDENCIA 233",
     "levels": [
       {
+        "id": "inst-044-level-001",
+        "institutionId": "inst-044",
         "level": "Secundario",
         "empresa": "EE1211005"
       }
@@ -710,13 +712,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-045",
     "name": "INST. SUP. BANCARIO",
-    "empresa": "EE1310963",
     "cue": "140489500",
-    "levelSource": "3. Común - Superior",
     "sector": "Privado",
     "address": "SAN JERONIMO 224",
     "levels": [
       {
+        "id": "inst-045-level-001",
+        "institutionId": "inst-045",
         "level": "Superior",
         "empresa": "EE1310963"
       }
@@ -725,13 +727,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-046",
     "name": "INSTITUTO AMPARO DE MARIA",
-    "empresa": "EE1230017",
     "cue": "140211700",
-    "levelSource": "2. Común - Secundario",
     "sector": "Privado",
     "address": "CASEROS 730",
     "levels": [
       {
+        "id": "inst-046-level-001",
+        "institutionId": "inst-046",
         "level": "Secundario",
         "empresa": "EE1230017"
       }
@@ -740,13 +742,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-047",
     "name": "INSTITUTO SECUNDARIO BANCARIO",
-    "empresa": "EE1210978",
     "cue": "140518500",
-    "levelSource": "2. Común - Secundario",
     "sector": "Privado",
     "address": "SAN JERONIMO 224",
     "levels": [
       {
+        "id": "inst-047-level-001",
+        "institutionId": "inst-047",
         "level": "Secundario",
         "empresa": "EE1210978"
       }
@@ -755,13 +757,13 @@ export const institutions: Institution[] = [
   {
     "id": "inst-048",
     "name": "INSTITUTO SUPERIOR DE FORMACION DOCENTE CALASANZ",
-    "empresa": "EE1311016",
     "cue": "140558000",
-    "levelSource": "3. Común - Superior",
     "sector": "Privado",
     "address": "CASEROS 745",
     "levels": [
       {
+        "id": "inst-048-level-001",
+        "institutionId": "inst-048",
         "level": "Superior",
         "empresa": "EE1311016"
       }
@@ -770,17 +772,19 @@ export const institutions: Institution[] = [
   {
     "id": "inst-049",
     "name": "INSTITUTO SUPERIOR POLITECNICO CORDOBA",
-    "empresa": "EE0310960",
     "cue": "140575200",
-    "levelSource": "3. Común - Superior,9. Formación Profesional",
     "sector": "Estatal",
     "address": "AV. HUMBERTO PRIMO 680",
     "levels": [
       {
+        "id": "inst-049-level-001",
+        "institutionId": "inst-049",
         "level": "Superior",
         "empresa": ""
       },
       {
+        "id": "inst-049-level-002",
+        "institutionId": "inst-049",
         "level": "Formación Profesional",
         "empresa": ""
       }
