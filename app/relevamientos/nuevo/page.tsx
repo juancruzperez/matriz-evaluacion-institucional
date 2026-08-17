@@ -23,7 +23,7 @@ function createEvaluation(): Evaluation {
     version: 1,
     status: "draft",
     institutionId: "",
-    level: null,
+    institutionLevelId: null,
     date: new Date().toISOString().slice(0, 10),
     managementTeamPresent: null,
     managementTeamContact: "",
@@ -31,7 +31,6 @@ function createEvaluation(): Evaluation {
     updatedAt: new Date().toISOString(),
   }
 }
-
 function readEvaluations(): Evaluation[] {
   try {
     const parsed = JSON.parse(
@@ -85,7 +84,7 @@ function NewEvaluationContent() {
         setEvaluation((current) => ({
           ...current,
           institutionId,
-          level: null,
+          institutionLevelId: null,
         }))
       })
     }
@@ -310,7 +309,7 @@ function NewEvaluationContent() {
             updateEvaluation((current) => ({
               ...current,
               institutionId: selected?.id ?? "",
-              level: null,
+              institutionLevelId: null,
             }))
           }
         />
@@ -338,11 +337,11 @@ function NewEvaluationContent() {
               <select
                 disabled={readOnly}
                 id="level"
-                value={evaluation.level ?? ""}
+                value={evaluation.institutionLevelId ?? ""}
                 onChange={(e) =>
                   updateEvaluation((current) => ({
                     ...current,
-                    level: e.target.value || null,
+                    institutionLevelId: e.target.value || null,
                   }))
                 }
               >

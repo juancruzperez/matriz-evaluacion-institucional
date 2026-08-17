@@ -309,7 +309,7 @@ export default function InstitutionsPage() {
                       <div className="evaluation-history">
                         {institutionEvaluations.map((evaluation) => (
                           <div className="evaluation-history-row" key={evaluation.id}>
-                            <div><strong>{formatDate(evaluation.date)}</strong><span>{evaluation.level || "Toda la institución"}</span></div>
+                            <div><strong>{formatDate(evaluation.date)}</strong><span>{evaluation.institutionLevelId || "Toda la institución"}</span></div>
                             <div><span>v{evaluation.version}</span><span className={`history-status ${evaluation.status}`}>{evaluation.status === "closed" ? "Cerrado" : "En curso"}</span></div>
                             <Link className="secondary-button" href={`/relevamientos/nuevo?id=${encodeURIComponent(evaluation.id)}`}>{evaluation.status === "closed" ? "Consultar" : "Continuar"}</Link>
                           </div>

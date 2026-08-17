@@ -226,8 +226,12 @@ export default function Dashboard() {
                     </strong>
 
                     <span>
-                      {evaluation.level ??
-                        "Toda la institución"}{" "}
+                      {evaluation.institutionLevelId
+                        ? institution?.levels.find(
+                          (level) =>
+                            level.id === evaluation.institutionLevelId,
+                          )?.level ?? "Nivel no encontrado"
+                        : "Toda la institución"}{" "}
                       · {evaluation.date} · versión{" "}
                       {evaluation.version} ·{" "}
                       {closed ? "Cerrado" : "En curso"}

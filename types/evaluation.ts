@@ -1,6 +1,13 @@
 export type Urgency = "alto" | "medio" | "bajo"
 
-export type IndicatorField = "observation" | "urgency" | "strengths" | "number" | "text" | "multiSelect" | "month"
+export type IndicatorField =
+  | "observation"
+  | "urgency"
+  | "strengths"
+  | "number"
+  | "text"
+  | "multiSelect"
+  | "month"
 
 export type Indicator = {
   id: string
@@ -38,11 +45,16 @@ export type Evaluation = {
   version: number
   status: EvaluationStatus
   closedAt?: string
+
   institutionId: string
-  level: string | null
+  institutionLevelId: string | null
+
   date: string
+
   managementTeamPresent: boolean | null
   managementTeamContact: string
+
   responses: Record<string, IndicatorResponse>
+
   updatedAt: string
 }
