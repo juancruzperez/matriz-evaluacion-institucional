@@ -10,7 +10,7 @@ import {
 } from "react"
 import { useSearchParams } from "next/navigation"
 import { institutions } from "@/data/institutions"
-import { dimensions } from "@/data/evaluation-template"
+import { dimensions } from "@/lib/evaluation-template"
 import type { Evaluation } from "@/types/evaluation"
 import { InstitutionSearch } from "@/components/evaluation/InstitutionSearch"
 import { DimensionSection } from "@/components/evaluation/DimensionSection"

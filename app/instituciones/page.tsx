@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { institutions } from "@/data/institutions"
-import { dimensions } from "@/data/evaluation-template"
+import { dimensions } from "@/lib/evaluation-template"
 import { calculateInstitutionAssessment, URGENCY_WEIGHT, type Criticality } from "@/lib/criticality"
 import type { Evaluation, Urgency } from "@/types/evaluation"
 
