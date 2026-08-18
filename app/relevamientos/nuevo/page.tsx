@@ -9,28 +9,39 @@ import {
   useState,
 } from "react"
 import { useSearchParams } from "next/navigation"
+
 import { institutions } from "@/data/institutions"
 import { dimensions } from "@/lib/evaluation-template"
+import {
+  createEvaluationResponse,
+  getEvaluationResponse,
+  upsertEvaluationResponse,
+} from "@/lib/evaluation-responses"
+
 import type { Evaluation } from "@/types/evaluation"
+
 import { InstitutionSearch } from "@/components/evaluation/InstitutionSearch"
 import { DimensionSection } from "@/components/evaluation/DimensionSection"
 
 const STORAGE_KEY = "mei:evaluations"
 
 function createEvaluation(): Evaluation {
+  const now = new Date().toISOString()
+
   return {
     id: crypto.randomUUID(),
     version: 1,
     status: "draft",
     institutionId: "",
     institutionLevelId: null,
-    date: new Date().toISOString().slice(0, 10),
+    date: now.slice(0, 10),
     managementTeamPresent: null,
     managementTeamContact: "",
-    responses: {},
-    updatedAt: new Date().toISOString(),
+    responses: [],
+    updatedAt: now,
   }
 }
+
 function readEvaluations(): Evaluation[] {
   try {
     const parsed = JSON.parse(
@@ -99,15 +110,15 @@ function NewEvaluationContent() {
 
   const completedIndicators = useMemo(
     () =>
-      Object.values(evaluation.responses).filter(
-        (item) =>
-          item.observation.trim() ||
-          item.urgency ||
-          item.strengths?.trim() ||
-          Object.values(item.fields ?? {}).some((value) =>
+      evaluation.responses.filter(
+        (response) =>
+          response.observation.trim() ||
+          response.urgency ||
+          response.strengths?.trim() ||
+          Object.values(response.fields ?? {}).some((value) =>
             Array.isArray(value)
-              ? value.length
-              : value,
+              ? value.length > 0
+              : Boolean(value),
           ),
       ).length,
     [evaluation.responses],
@@ -119,9 +130,12 @@ function NewEvaluationContent() {
     0,
   )
 
-  const progress = Math.round(
-    (completedIndicators / totalIndicators) * 100,
-  )
+  const progress =
+    totalIndicators === 0
+      ? 0
+      : Math.round(
+          (completedIndicators / totalIndicators) * 100,
+        )
 
   function updateEvaluation(
     mutator: (current: Evaluation) => Evaluation,
@@ -141,18 +155,32 @@ function NewEvaluationContent() {
     field: "observation" | "urgency" | "strengths",
     value: string,
   ) {
-    updateEvaluation((current) => ({
-      ...current,
-      responses: {
-        ...current.responses,
-        [indicatorId]: {
-          ...current.responses[indicatorId],
-          observation:
-            current.responses[indicatorId]?.observation ?? "",
-          [field]: value,
-        },
-      },
-    }))
+    updateEvaluation((current) => {
+      const existingResponse = getEvaluationResponse(
+        current.responses,
+        indicatorId,
+      )
+
+      const response =
+        existingResponse ??
+        createEvaluationResponse(
+          current.id,
+          indicatorId,
+        )
+
+      const updatedResponse = {
+        ...response,
+        [field]: value,
+      }
+
+      return {
+        ...current,
+        responses: upsertEvaluationResponse(
+          current.responses,
+          updatedResponse,
+        ),
+      }
+    })
   }
 
   function updateResponseField(
@@ -160,21 +188,35 @@ function NewEvaluationContent() {
     fieldId: string,
     value: string | string[],
   ) {
-    updateEvaluation((current) => ({
-      ...current,
-      responses: {
-        ...current.responses,
-        [indicatorId]: {
-          ...current.responses[indicatorId],
-          observation:
-            current.responses[indicatorId]?.observation ?? "",
-          fields: {
-            ...current.responses[indicatorId]?.fields,
-            [fieldId]: value,
-          },
+    updateEvaluation((current) => {
+      const existingResponse = getEvaluationResponse(
+        current.responses,
+        indicatorId,
+      )
+
+      const response =
+        existingResponse ??
+        createEvaluationResponse(
+          current.id,
+          indicatorId,
+        )
+
+      const updatedResponse = {
+        ...response,
+        fields: {
+          ...response.fields,
+          [fieldId]: value,
         },
-      },
-    }))
+      }
+
+      return {
+        ...current,
+        responses: upsertEvaluationResponse(
+          current.responses,
+          updatedResponse,
+        ),
+      }
+    })
   }
 
   function saveEvaluation() {
@@ -341,7 +383,8 @@ function NewEvaluationContent() {
                 onChange={(e) =>
                   updateEvaluation((current) => ({
                     ...current,
-                    institutionLevelId: e.target.value || null,
+                    institutionLevelId:
+                      e.target.value || null,
                   }))
                 }
               >
@@ -351,8 +394,8 @@ function NewEvaluationContent() {
 
                 {institution.levels.map((level) => (
                   <option
-                    key={`${level.level}-${level.empresa}`}
-                    value={level.level}
+                    key={`${level.id}`}
+                    value={level.id}
                   >
                     {level.level}
                     {level.empresa

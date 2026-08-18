@@ -2,6 +2,7 @@
 
 import type { DimensionWithIndicators } from "@/types/dimension"
 import type { Evaluation } from "@/types/evaluation"
+import { getEvaluationResponse } from "@/lib/evaluation-responses"
 
 type Props = {
   dimension: DimensionWithIndicators
@@ -47,10 +48,12 @@ export function DimensionSection({
 
       <div className="indicator-list">
         {dimension.indicators.map((indicator, index) => {
-          const response =
-            responses[indicator.id] ?? {
-              observation: "",
-            }
+          const response = getEvaluationResponse(
+            responses,
+            indicator.id,
+          )
+
+          const observation = response?.observation ?? ""
 
           return (
             <article
@@ -71,7 +74,7 @@ export function DimensionSection({
 
               {indicator.fields.map((field) => {
                 const value =
-                  response.fields?.[field.id] ??
+                  response?.fields?.[field.id] ??
                   (field.type === "multiSelect"
                     ? []
                     : "")
@@ -166,7 +169,7 @@ export function DimensionSection({
 
               <textarea
                 disabled={readOnly}
-                value={response.observation}
+                value={observation}
                 onChange={(event) =>
                   onChange(
                     indicator.id,
@@ -194,7 +197,7 @@ export function DimensionSection({
                         key={urgency}
                         type="button"
                         className={`urgency ${urgency} ${
-                          response.urgency === urgency
+                          response?.urgency === urgency
                             ? "selected"
                             : ""
                         }`}
@@ -225,7 +228,7 @@ export function DimensionSection({
                   <textarea
                     disabled={readOnly}
                     value={
-                      response.strengths ?? ""
+                      response?.strengths ?? ""
                     }
                     onChange={(event) =>
                       onChange(

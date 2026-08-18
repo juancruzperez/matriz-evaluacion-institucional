@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react"
 import { institutions } from "@/data/institutions"
 import { dimensions } from "@/lib/evaluation-template"
 import { calculateInstitutionAssessment, URGENCY_WEIGHT, type Criticality } from "@/lib/criticality"
+import { getEvaluationResponse } from "@/lib/evaluation-responses"
 import type { Evaluation, Urgency } from "@/types/evaluation"
 
 const STORAGE_KEY = "mei:evaluations"
@@ -66,7 +67,7 @@ function dimensionAssessment(evaluation: Evaluation, dimensionId: string) {
   if (!dimension) return null
 
   const values = dimension.indicators
-    .map((indicator) => evaluation.responses[indicator.id]?.urgency)
+    .map((indicator) => getEvaluationResponse(evaluation.responses, indicator.id)?.urgency)
     .filter((urgency): urgency is Urgency => Boolean(urgency))
     .map((urgency) => urgencyWeight[urgency])
 
@@ -82,7 +83,7 @@ function dimensionEntries(evaluation: Evaluation, dimensionId: string) {
   if (!dimension) return []
 
   return dimension.indicators.flatMap((indicator) => {
-    const response = evaluation.responses[indicator.id]
+    const response = getEvaluationResponse(evaluation.responses, indicator.id)
     if (!response) return []
     const fields = Object.entries(response.fields ?? {})
       .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)

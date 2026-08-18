@@ -1,13 +1,18 @@
 export type Urgency = "alto" | "medio" | "bajo"
 
-export type EvaluationStatus = "draft" | "closed"
+export type EvaluationResponse = {
+  id: string
+  evaluationId: string
+  indicatorId: string
 
-export type IndicatorResponse = {
   observation: string
   urgency?: Urgency
   strengths?: string
+
   fields?: Record<string, string | string[]>
 }
+
+export type EvaluationStatus = "draft" | "closed"
 
 export type Evaluation = {
   id: string
@@ -23,7 +28,7 @@ export type Evaluation = {
   managementTeamPresent: boolean | null
   managementTeamContact: string
 
-  responses: Record<string, IndicatorResponse>
+  responses: EvaluationResponse[]
 
   updatedAt: string
 }
