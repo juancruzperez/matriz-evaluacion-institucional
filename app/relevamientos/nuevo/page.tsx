@@ -108,22 +108,27 @@ function NewEvaluationContent() {
 
   const readOnly = evaluation.status === "closed"
 
+  const hasResponseContent = (
+    response: Evaluation["responses"][number],
+  ) =>
+    response.observation.trim() ||
+    response.urgency ||
+    response.strengths?.trim() ||
+    Object.values(response.fields ?? {}).some((value) =>
+      Array.isArray(value)
+        ? value.length > 0
+        : Boolean(value),
+    )
+
   const completedIndicators = useMemo(
     () =>
-      evaluation.responses.filter(
-        (response) =>
-          response.observation.trim() ||
-          response.urgency ||
-          response.strengths?.trim() ||
-          Object.values(response.fields ?? {}).some((value) =>
-            Array.isArray(value)
-              ? value.length > 0
-              : Boolean(value),
-          ),
+      evaluation.responses.filter((response) =>
+        hasResponseContent(response),
       ).length,
     [evaluation.responses],
   )
 
+  
   const totalIndicators = dimensions.reduce(
     (total, dimension) =>
       total + dimension.indicators.length,
@@ -257,8 +262,15 @@ function NewEvaluationContent() {
     )
   }
 
-  function closeEvaluation() {
+    function closeEvaluation() {
     if (readOnly) return
+
+    if (completedIndicators === 0) {
+      alert(
+        "No se puede cerrar el relevamiento porque está completamente vacío.",
+      )
+      return
+    }
 
     const confirmed = window.confirm(
       "¿Cerrar este relevamiento? Una vez cerrado no podrá editarse y quedará disponible solo para consulta.",
