@@ -9,7 +9,7 @@ import {
   useState,
 } from "react"
 import { useSearchParams } from "next/navigation"
-
+import { CURRENT_USER_ID } from "@/lib/current-user"
 import { institutions } from "@/data/institutions"
 import { dimensions } from "@/lib/evaluation-template"
 import {
@@ -38,8 +38,8 @@ function createEvaluation(): Evaluation {
     managementTeamPresent: null,
     managementTeamContact: "",
     responses: [],
-    createdBy: "system",
-    updatedBy: "system",
+    createdBy: CURRENT_USER_ID,
+    updatedBy: CURRENT_USER_ID,
     updatedAt: now,
   }
 }
@@ -152,7 +152,7 @@ function NewEvaluationContent() {
   setEvaluation((current) =>
     mutator({
       ...current,
-      updatedBy: "system",
+      updatedBy: CURRENT_USER_ID,
       updatedAt: new Date().toISOString(),
     }),
   )
@@ -288,8 +288,8 @@ function NewEvaluationContent() {
       status: "closed" as const,
       version: evaluation.version + 1,
       closedAt: new Date().toISOString(),
-      updatedBy: "system",
-      closedBy: "system",
+      updatedBy: CURRENT_USER_ID,
+      closedBy: CURRENT_USER_ID,
       updatedAt: new Date().toISOString(),
     }
 
