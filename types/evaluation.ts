@@ -16,15 +16,22 @@ export type Evaluation = {
   id: string
   version: number
   status: EvaluationStatus
-  closedAt?: string
+
   institutionId: string
   institutionLevelId: string | null
+
   date: string
+
   managementTeamPresent: boolean | null
   managementTeamContact: string
+
   responses: EvaluationResponse[]
+
   createdBy: string
+  createdAt: string
+
   updatedBy: string
-  closedBy?: string
   updatedAt: string
+
+  closedAt?: string
 }

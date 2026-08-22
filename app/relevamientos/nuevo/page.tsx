@@ -40,6 +40,7 @@ function createEvaluation(): Evaluation {
     responses: [],
     createdBy: CURRENT_USER_ID,
     updatedBy: CURRENT_USER_ID,
+    createdAt: now,
     updatedAt: now,
   }
 }

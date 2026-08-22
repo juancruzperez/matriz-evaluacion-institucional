@@ -2,11 +2,11 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { institutions } from "@/data/institutions"
 import { dimensions } from "@/lib/evaluation-template"
 import { calculateInstitutionAssessment, URGENCY_WEIGHT, type Criticality } from "@/lib/criticality"
 import { getEvaluationResponse } from "@/lib/evaluation-responses"
 import type { Evaluation, Urgency } from "@/types/evaluation"
+import type { Institution } from "@/types/institution"
 
 const STORAGE_KEY = "mei:evaluations"
 
@@ -100,19 +100,51 @@ function dimensionEntries(evaluation: Evaluation, dimensionId: string) {
 }
 
 export default function InstitutionsPage() {
+  const [institutions, setInstitutions] = useState<Institution[]>([])
   const [evaluations, setEvaluations] = useState<Evaluation[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [institutionsLoading, setInstitutionsLoading] = useState(true)
+  const [institutionsError, setInstitutionsError] = useState<string | null>(null)
 
   useEffect(() => {
-    const refresh = () => setEvaluations(readEvaluations())
-    refresh()
-    window.addEventListener("focus", refresh)
-    window.addEventListener("storage", refresh)
-    return () => {
-      window.removeEventListener("focus", refresh)
-      window.removeEventListener("storage", refresh)
+  const loadInstitutions = async () => {
+    try {
+      setInstitutionsLoading(true)
+      setInstitutionsError(null)
+
+      const response = await fetch("/api/institutions")
+
+      if (!response.ok) {
+        throw new Error("No se pudieron cargar las instituciones")
+      }
+
+      const data = (await response.json()) as Institution[]
+
+      setInstitutions(data)
+    } catch (error) {
+      console.error(error)
+      setInstitutionsError("No se pudieron cargar las instituciones.")
+    } finally {
+      setInstitutionsLoading(false)
     }
-  }, [])
+  }
+
+  loadInstitutions()
+
+  const refreshEvaluations = () => {
+    setEvaluations(readEvaluations())
+  }
+
+  refreshEvaluations()
+
+  window.addEventListener("focus", refreshEvaluations)
+  window.addEventListener("storage", refreshEvaluations)
+
+  return () => {
+    window.removeEventListener("focus", refreshEvaluations)
+    window.removeEventListener("storage", refreshEvaluations)
+  }
+}, [])
 
   const assessments = useMemo(() => {
     return institutions
@@ -128,7 +160,7 @@ export default function InstitutionsPage() {
         if (categoryDifference !== 0) return categoryDifference
         return (b.assessment.score ?? -1) - (a.assessment.score ?? -1)
       })
-  }, [evaluations])
+  }, [evaluations, institutions])
 
   const counts = useMemo(() => {
     return assessments.reduce(
@@ -153,6 +185,13 @@ export default function InstitutionsPage() {
       </header>
 
       <section className="institution-summary-bar">
+        {institutionsLoading && (
+          <p className="muted">Cargando instituciones...</p>
+        )}
+
+        {institutionsError && (
+          <p className="muted">{institutionsError}</p>
+        )}
         <div><strong>{institutions.length}</strong><span>Instituciones</span></div>
         <div><strong>{counts.alta}</strong><span>Criticidad alta</span></div>
         <div><strong>{counts.media}</strong><span>Criticidad media</span></div>
@@ -297,7 +336,7 @@ export default function InstitutionsPage() {
                     </div>
                     <div className="levels-list">
                       {institution.levels.map((level) => (
-                        <div key={`${level.level}-${level.empresa}`}><strong>{level.level}</strong><span>EMPRESA {level.empresa}</span></div>
+                        <div key={`${level.level}-${level.empresa}`}><strong>{level.level}</strong><span>EMPRESA {level.empresa || "No disponible"}</span></div>
                       ))}
                     </div>
                   </div>
