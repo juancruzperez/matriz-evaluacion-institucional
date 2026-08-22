@@ -145,17 +145,18 @@ function NewEvaluationContent() {
         )
 
   function updateEvaluation(
-    mutator: (current: Evaluation) => Evaluation,
-  ) {
-    if (readOnly) return
+  mutator: (current: Evaluation) => Evaluation,
+) {
+  if (readOnly) return
 
-    setEvaluation((current) =>
-      mutator({
-        ...current,
-        updatedAt: new Date().toISOString(),
-      }),
-    )
-  }
+  setEvaluation((current) =>
+    mutator({
+      ...current,
+      updatedBy: "system",
+      updatedAt: new Date().toISOString(),
+    }),
+  )
+}
 
   function updateResponse(
     indicatorId: string,
@@ -287,6 +288,8 @@ function NewEvaluationContent() {
       status: "closed" as const,
       version: evaluation.version + 1,
       closedAt: new Date().toISOString(),
+      updatedBy: "system",
+      closedBy: "system",
       updatedAt: new Date().toISOString(),
     }
 
