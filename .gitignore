@@ -49,3 +49,5 @@ next-env.d.ts
 
 # working tree
 project-tree.txt
+
+.env.local
