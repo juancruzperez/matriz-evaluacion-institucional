@@ -4,11 +4,9 @@ export type EvaluationResponse = {
   id: string
   evaluationId: string
   indicatorId: string
-
   observation: string
   urgency?: Urgency
   strengths?: string
-
   fields?: Record<string, string | string[]>
 }
 
@@ -19,16 +17,14 @@ export type Evaluation = {
   version: number
   status: EvaluationStatus
   closedAt?: string
-
   institutionId: string
   institutionLevelId: string | null
-
   date: string
-
   managementTeamPresent: boolean | null
   managementTeamContact: string
-
   responses: EvaluationResponse[]
-
+  createdBy: string
+  updatedBy: string
+  closedBy?: string
   updatedAt: string
 }

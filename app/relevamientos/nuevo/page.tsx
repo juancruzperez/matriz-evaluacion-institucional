@@ -38,6 +38,8 @@ function createEvaluation(): Evaluation {
     managementTeamPresent: null,
     managementTeamContact: "",
     responses: [],
+    createdBy: "system",
+    updatedBy: "system",
     updatedAt: now,
   }
 }
