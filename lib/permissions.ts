@@ -5,14 +5,14 @@ export const rolePermissions: Record<
   RoleId,
   Permission[]
 > = {
-  territorial: [
+  responsable_territorial: [
     "evaluation:read",
     "evaluation:create",
     "evaluation:update",
     "evaluation:close",
   ],
 
-  institutional: [
+  responsable_institucional: [
     "evaluation:read",
   ],
 
@@ -22,5 +22,6 @@ export const rolePermissions: Record<
     "evaluation:update",
     "evaluation:close",
     "admin:manage",
+    "admin:users",
   ],
 }

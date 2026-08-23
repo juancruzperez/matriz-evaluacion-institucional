@@ -1,4 +1,4 @@
 export type RoleId =
-  | "territorial"
-  | "institutional"
   | "admin"
+  | "responsable_territorial"
+  | "responsable_institucional"

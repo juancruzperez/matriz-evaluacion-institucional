@@ -4,3 +4,4 @@ export type Permission =
   | "evaluation:update"
   | "evaluation:close"
   | "admin:manage"
+  | "admin:users"
