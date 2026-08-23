@@ -38,6 +38,7 @@ export async function findUserByGoogleSubject(
       updated_at
     FROM users
     WHERE google_subject = ${subject}
+      AND active = true
     LIMIT 1
   `) as UserRow[]
 
@@ -73,6 +74,12 @@ export async function linkGoogleSubject(
   userId: string,
   subject: string,
 ): Promise<User | null> {
+  const existingUser = await findUserByGoogleSubject(subject)
+
+  if (existingUser && existingUser.id !== userId) {
+    return null
+  }
+
   const rows = (await sql`
     UPDATE users
     SET
@@ -80,6 +87,10 @@ export async function linkGoogleSubject(
       updated_at = NOW()
     WHERE id = ${userId}
       AND active = true
+      AND (
+        google_subject IS NULL
+        OR google_subject = ${subject}
+      )
     RETURNING
       id,
       name,
@@ -94,7 +105,6 @@ export async function linkGoogleSubject(
 
   return row ? mapUserRow(row) : null
 }
-
 export async function findUserByIdentity(
   identity: AuthenticatedIdentity,
 ): Promise<User | null> {
