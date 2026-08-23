@@ -3,12 +3,14 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { dimensions } from "@/lib/evaluation-template"
-import { calculateInstitutionAssessment, URGENCY_WEIGHT, type Criticality } from "@/lib/criticality"
+import {
+  calculateInstitutionAssessment,
+  URGENCY_WEIGHT,
+  type Criticality,
+} from "@/lib/criticality"
 import { getEvaluationResponse } from "@/lib/evaluation-responses"
 import type { Evaluation, Urgency } from "@/types/evaluation"
 import type { Institution } from "@/types/institution"
-
-const STORAGE_KEY = "mei:evaluations"
 
 const criticalityOrder: Record<Criticality, number> = {
   alta: 0,
@@ -17,48 +19,95 @@ const criticalityOrder: Record<Criticality, number> = {
   "sin-relevamiento": 3,
 }
 
-const urgencyWeight: Record<Urgency, number> = URGENCY_WEIGHT
-
-function readEvaluations(): Evaluation[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]") as Evaluation[]
-    return parsed.map((evaluation) => ({ ...evaluation, status: evaluation.status ?? "draft" }))
-  } catch {
-    return []
-  }
-}
+const urgencyWeight: Record<Urgency, number> =
+  URGENCY_WEIGHT
 
 function criticalityLabel(value: Criticality) {
-  if (value === "sin-relevamiento") return "Sin relevamiento"
+  if (value === "sin-relevamiento") {
+    return "Sin relevamiento"
+  }
+
   return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function parseDate(date: string) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const [year, month, day] = date
+      .split("-")
+      .map(Number)
+
+    return new Date(year, month - 1, day)
+  }
+
+  return new Date(date)
 }
 
 function daysSince(date: string | null) {
   if (!date) return null
-  const last = new Date(`${date}T00:00:00`)
+
+  const last = parseDate(date)
+
+  if (Number.isNaN(last.getTime())) {
+    return null
+  }
+
   const today = new Date()
-  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  const diff = Math.floor((startOfToday.getTime() - last.getTime()) / 86400000)
+
+  const startOfToday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  )
+
+  const lastDay = new Date(
+    last.getFullYear(),
+    last.getMonth(),
+    last.getDate(),
+  )
+
+  const diff = Math.floor(
+    (startOfToday.getTime() - lastDay.getTime()) /
+      86400000,
+  )
+
   return Math.max(0, diff)
 }
 
 function formatDate(date: string) {
+  const parsed = parseDate(date)
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "Fecha no disponible"
+  }
+
   return new Intl.DateTimeFormat("es-AR", {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  }).format(new Date(`${date}T00:00:00`))
+  }).format(parsed)
 }
 
 function urgencyLabel(value?: Urgency) {
   if (!value) return "Sin urgencia registrada"
+
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-function criticalityFromScore(score: number | null): Criticality {
-  if (score === null) return "sin-relevamiento"
-  if (score >= 0.75) return "alta"
-  if (score >= 0.5) return "media"
+function criticalityFromScore(
+  score: number | null,
+): Criticality {
+  if (score === null) {
+    return "sin-relevamiento"
+  }
+
+  if (score >= 0.75) {
+    return "alta"
+  }
+
+  if (score >= 0.5) {
+    return "media"
+  }
+
   return "baja"
 }
 
@@ -107,43 +156,60 @@ export default function InstitutionsPage() {
   const [institutionsError, setInstitutionsError] = useState<string | null>(null)
 
   useEffect(() => {
-  const loadInstitutions = async () => {
+  const loadData = async () => {
     try {
       setInstitutionsLoading(true)
       setInstitutionsError(null)
 
-      const response = await fetch("/api/institutions")
+      const [
+        institutionsResponse,
+        evaluationsResponse,
+      ] = await Promise.all([
+        fetch("/api/institutions"),
+        fetch("/api/evaluations"),
+      ])
 
-      if (!response.ok) {
-        throw new Error("No se pudieron cargar las instituciones")
+      if (!institutionsResponse.ok) {
+        throw new Error(
+          "No se pudieron cargar las instituciones",
+        )
       }
 
-      const data = (await response.json()) as Institution[]
+      if (!evaluationsResponse.ok) {
+        throw new Error(
+          "No se pudieron cargar los relevamientos",
+        )
+      }
 
-      setInstitutions(data)
+      const [
+        institutionsData,
+        evaluationsData,
+      ] = await Promise.all([
+        institutionsResponse.json() as Promise<Institution[]>,
+        evaluationsResponse.json() as Promise<Evaluation[]>,
+      ])
+
+      setInstitutions(institutionsData)
+
+      setEvaluations(
+        evaluationsData.map((evaluation) => ({
+          ...evaluation,
+          status:
+            evaluation.status ?? "draft",
+        })),
+      )
     } catch (error) {
       console.error(error)
-      setInstitutionsError("No se pudieron cargar las instituciones.")
+
+      setInstitutionsError(
+        "No se pudieron cargar los datos institucionales.",
+      )
     } finally {
       setInstitutionsLoading(false)
     }
   }
 
-  loadInstitutions()
-
-  const refreshEvaluations = () => {
-    setEvaluations(readEvaluations())
-  }
-
-  refreshEvaluations()
-
-  window.addEventListener("focus", refreshEvaluations)
-  window.addEventListener("storage", refreshEvaluations)
-
-  return () => {
-    window.removeEventListener("focus", refreshEvaluations)
-    window.removeEventListener("storage", refreshEvaluations)
-  }
+  loadData()
 }, [])
 
   const assessments = useMemo(() => {

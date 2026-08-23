@@ -9,7 +9,6 @@ import {
   useState,
 } from "react"
 import { useSearchParams } from "next/navigation"
-import { CURRENT_USER_ID } from "@/lib/current-user"
 import { institutions } from "@/data/institutions"
 import { dimensions } from "@/lib/evaluation-template"
 import {
@@ -22,8 +21,6 @@ import type { Evaluation } from "@/types/evaluation"
 
 import { InstitutionSearch } from "@/components/evaluation/InstitutionSearch"
 import { DimensionSection } from "@/components/evaluation/DimensionSection"
-
-const STORAGE_KEY = "mei:evaluations"
 
 function createEvaluation(): Evaluation {
   const now = new Date().toISOString()
@@ -38,61 +35,71 @@ function createEvaluation(): Evaluation {
     managementTeamPresent: null,
     managementTeamContact: "",
     responses: [],
-    createdBy: CURRENT_USER_ID,
-    updatedBy: CURRENT_USER_ID,
+    createdBy: "",
+    updatedBy: "",
     createdAt: now,
     updatedAt: now,
-  }
-}
-
-function readEvaluations(): Evaluation[] {
-  try {
-    const parsed = JSON.parse(
-      localStorage.getItem(STORAGE_KEY) ?? "[]",
-    ) as Evaluation[]
-
-    return parsed.map((item) => ({
-      ...item,
-      status: item.status ?? "draft",
-    }))
-  } catch {
-    return []
   }
 }
 
 function NewEvaluationContent() {
   const searchParams = useSearchParams()
 
-  const [evaluation, setEvaluation] = useState<Evaluation>(() =>
-    createEvaluation(),
-  )
+  const [evaluation, setEvaluation] =
+    useState<Evaluation>(() =>
+      createEvaluation(),
+    )
 
-  const [activeDimension, setActiveDimension] = useState<string | null>(
-    null,
-  )
+  const [persisted, setPersisted] = useState(false)
+
+  const [activeDimension, setActiveDimension] =
+    useState<string | null>(null)
 
   useEffect(() => {
-    const evaluationId = searchParams.get("evaluation")
+    const evaluationId =
+      searchParams.get("evaluation")
 
     if (evaluationId) {
-      const found = readEvaluations().find(
-        (item) => item.id === evaluationId,
-      )
+      async function loadEvaluation() {
+        try {
+          const response = await fetch(
+            `/api/evaluations/${evaluationId}`,
+          )
 
-      if (found) {
-        startTransition(() => {
-          setEvaluation(found)
-        })
+          if (!response.ok) {
+            throw new Error(
+              `Unable to load evaluation: ${response.status}`,
+            )
+          }
+
+          const loaded =
+            (await response.json()) as Evaluation
+
+          startTransition(() => {
+            setEvaluation(loaded)
+            setPersisted(true)
+          })
+        } catch (error) {
+          console.error(
+            "Error al cargar el relevamiento",
+            error,
+          )
+        }
       }
+
+      void loadEvaluation()
 
       return
     }
 
-    const institutionId = searchParams.get("institution")
+    const institutionId =
+      searchParams.get("institution")
 
     if (
       institutionId &&
-      institutions.some((item) => item.id === institutionId)
+      institutions.some(
+        (item) => item.id === institutionId,
+      )
     ) {
       startTransition(() => {
         setEvaluation((current) => ({
@@ -100,6 +107,8 @@ function NewEvaluationContent() {
           institutionId,
           institutionLevelId: null,
         }))
+
+        setPersisted(false)
       })
     }
   }, [searchParams])
@@ -109,7 +118,8 @@ function NewEvaluationContent() {
       (item) => item.id === evaluation.institutionId,
     ) ?? null
 
-  const readOnly = evaluation.status === "closed"
+  const readOnly =
+    evaluation.status === "closed"
 
   const hasResponseContent = (
     response: Evaluation["responses"][number],
@@ -117,7 +127,9 @@ function NewEvaluationContent() {
     response.observation.trim() ||
     response.urgency ||
     response.strengths?.trim() ||
-    Object.values(response.fields ?? {}).some((value) =>
+    Object.values(
+      response.fields ?? {},
+    ).some((value) =>
       Array.isArray(value)
         ? value.length > 0
         : Boolean(value),
@@ -125,50 +137,60 @@ function NewEvaluationContent() {
 
   const completedIndicators = useMemo(
     () =>
-      evaluation.responses.filter((response) =>
-        hasResponseContent(response),
+      evaluation.responses.filter(
+        (response) =>
+          hasResponseContent(response),
       ).length,
     [evaluation.responses],
   )
 
-  
-  const totalIndicators = dimensions.reduce(
-    (total, dimension) =>
-      total + dimension.indicators.length,
-    0,
-  )
+  const totalIndicators =
+    dimensions.reduce(
+      (total, dimension) =>
+        total +
+        dimension.indicators.length,
+      0,
+    )
 
   const progress =
     totalIndicators === 0
       ? 0
       : Math.round(
-          (completedIndicators / totalIndicators) * 100,
+          (completedIndicators /
+            totalIndicators) *
+            100,
         )
 
   function updateEvaluation(
-  mutator: (current: Evaluation) => Evaluation,
-) {
-  if (readOnly) return
+    mutator: (
+      current: Evaluation,
+    ) => Evaluation,
+  ) {
+    if (readOnly) return
 
-  setEvaluation((current) =>
-    mutator({
-      ...current,
-      updatedBy: CURRENT_USER_ID,
-      updatedAt: new Date().toISOString(),
-    }),
-  )
-}
+    setEvaluation((current) =>
+      mutator({
+        ...current,
+        updatedAt:
+          new Date().toISOString(),
+      }),
+    )
+  }
 
   function updateResponse(
     indicatorId: string,
-    field: "observation" | "urgency" | "strengths",
+    field:
+      | "observation"
+      | "urgency"
+      | "strengths",
     value: string,
   ) {
     updateEvaluation((current) => {
-      const existingResponse = getEvaluationResponse(
-        current.responses,
-        indicatorId,
-      )
+      const existingResponse =
+        getEvaluationResponse(
+          current.responses,
+          indicatorId,
+        )
 
       const response =
         existingResponse ??
@@ -184,10 +206,11 @@ function NewEvaluationContent() {
 
       return {
         ...current,
-        responses: upsertEvaluationResponse(
-          current.responses,
-          updatedResponse,
-        ),
+        responses:
+          upsertEvaluationResponse(
+            current.responses,
+            updatedResponse,
+          ),
       }
     })
   }
@@ -198,10 +221,11 @@ function NewEvaluationContent() {
     value: string | string[],
   ) {
     updateEvaluation((current) => {
-      const existingResponse = getEvaluationResponse(
-        current.responses,
-        indicatorId,
-      )
+      const existingResponse =
+        getEvaluationResponse(
+          current.responses,
+          indicatorId,
+        )
 
       const response =
         existingResponse ??
@@ -220,53 +244,94 @@ function NewEvaluationContent() {
 
       return {
         ...current,
-        responses: upsertEvaluationResponse(
-          current.responses,
-          updatedResponse,
-        ),
+        responses:
+          upsertEvaluationResponse(
+            current.responses,
+            updatedResponse,
+          ),
       }
     })
   }
 
-  function saveEvaluation() {
+  async function saveEvaluation() {
     if (readOnly) return
 
-    const saved = readEvaluations()
+    try {
+      const payload = {
+        institutionId:
+          evaluation.institutionId,
+        institutionLevelId:
+          evaluation.institutionLevelId,
+        date: evaluation.date,
+        managementTeamPresent:
+          evaluation.managementTeamPresent,
+        managementTeamContact:
+          evaluation.managementTeamContact,
+        responses:
+          evaluation.responses.map(
+            (item) => ({
+              indicatorId:
+                item.indicatorId,
+              observation:
+                item.observation,
+              urgency: item.urgency,
+              strengths:
+                item.strengths,
+              fields: item.fields,
+            }),
+          ),
+      }
 
-    const existing = saved.find(
-      (item) => item.id === evaluation.id,
-    )
+      const response = await fetch(
+        persisted
+          ? `/api/evaluations/${evaluation.id}`
+          : "/api/evaluations",
+        {
+          method: persisted
+            ? "PATCH"
+            : "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify(
+            payload,
+          ),
+        },
+      )
 
-    const nextVersion = existing
-      ? existing.version + 1
-      : evaluation.version
+      const data =
+        await response.json()
 
-    const current = {
-      ...evaluation,
-      status: "draft" as const,
-      version: nextVersion,
-      updatedAt: new Date().toISOString(),
-    }
-
-    const next = existing
-      ? saved.map((item) =>
-          item.id === current.id ? current : item,
+      if (!response.ok) {
+        throw new Error(
+          data?.error ??
+            "No se pudo guardar el relevamiento.",
         )
-      : [current, ...saved]
+      }
 
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(next),
-    )
+      const saved =
+        data as Evaluation
 
-    setEvaluation(current)
+      setEvaluation(saved)
+      setPersisted(true)
 
-    alert(
-      `Relevamiento guardado · versión ${current.version}`,
-    )
+      alert(
+        `Relevamiento guardado · versión ${saved.version}`,
+      )
+    } catch (error) {
+      console.error(
+        "Error al guardar el relevamiento",
+        error,
+      )
+
+      alert(
+        "No se pudo guardar el relevamiento. Verificá tu conexión e intentá nuevamente.",
+      )
+    }
   }
 
-    function closeEvaluation() {
+  function closeEvaluation() {
     if (readOnly) return
 
     if (completedIndicators === 0) {
@@ -276,36 +341,23 @@ function NewEvaluationContent() {
       return
     }
 
-    const confirmed = window.confirm(
-      "¿Cerrar este relevamiento? Una vez cerrado no podrá editarse y quedará disponible solo para consulta.",
-    )
+    const confirmed =
+      window.confirm(
+        "¿Cerrar este relevamiento? Una vez cerrado no podrá editarse y quedará disponible solo para consulta.",
+      )
 
     if (!confirmed) return
-
-    const saved = readEvaluations()
 
     const current = {
       ...evaluation,
       status: "closed" as const,
-      version: evaluation.version + 1,
-      closedAt: new Date().toISOString(),
-      updatedBy: CURRENT_USER_ID,
-      closedBy: CURRENT_USER_ID,
-      updatedAt: new Date().toISOString(),
+      version:
+        evaluation.version + 1,
+      closedAt:
+        new Date().toISOString(),
+      updatedAt:
+        new Date().toISOString(),
     }
-
-    const next = saved.some(
-      (item) => item.id === current.id,
-    )
-      ? saved.map((item) =>
-          item.id === current.id ? current : item,
-        )
-      : [current, ...saved]
-
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(next),
-    )
 
     setEvaluation(current)
 
@@ -318,16 +370,23 @@ function NewEvaluationContent() {
     <main className="shell narrow">
       <header className="form-topbar">
         <div>
-          <Link className="back-link" href="/">
+          <Link
+            className="back-link"
+            href="/"
+          >
             ← Dashboard
           </Link>
 
           <p className="eyebrow">
             CIRCUITO 3 ·{" "}
-            {readOnly ? "CONSULTA" : "RELEVAMIENTO"}
+            {readOnly
+              ? "CONSULTA"
+              : "RELEVAMIENTO"}
           </p>
 
-          <h1>Relevamiento institucional</h1>
+          <h1>
+            Relevamiento institucional
+          </h1>
 
           <p className="muted">
             Versión {evaluation.version} ·{" "}
@@ -339,8 +398,8 @@ function NewEvaluationContent() {
 
         <div className="progress">
           <span>
-            {completedIndicators}/{totalIndicators}{" "}
-            indicadores
+            {completedIndicators}/
+            {totalIndicators} indicadores
           </span>
 
           <div>
@@ -356,8 +415,13 @@ function NewEvaluationContent() {
       <section className="form-card identification">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">01</p>
-            <h2>Datos de identificación</h2>
+            <p className="eyebrow">
+              01
+            </p>
+
+            <h2>
+              Datos de identificación
+            </h2>
           </div>
         </div>
 
@@ -366,18 +430,24 @@ function NewEvaluationContent() {
           value={institution}
           disabled={readOnly}
           onChange={(selected) =>
-            updateEvaluation((current) => ({
-              ...current,
-              institutionId: selected?.id ?? "",
-              institutionLevelId: null,
-            }))
+            updateEvaluation(
+              (current) => ({
+                ...current,
+                institutionId:
+                  selected?.id ?? "",
+                institutionLevelId:
+                  null,
+              }),
+            )
           }
         />
 
         {institution && (
           <div className="institution-summary">
             <div>
-              <strong>{institution.name}</strong>
+              <strong>
+                {institution.name}
+              </strong>
 
               <span>
                 {institution.address} ·{" "}
@@ -385,7 +455,9 @@ function NewEvaluationContent() {
               </span>
 
               <span>
-                CUE: {institution.cue || "No disponible"}
+                CUE:{" "}
+                {institution.cue ||
+                  "No disponible"}
               </span>
             </div>
 
@@ -397,35 +469,45 @@ function NewEvaluationContent() {
               <select
                 disabled={readOnly}
                 id="level"
-                value={evaluation.institutionLevelId ?? ""}
+                value={
+                  evaluation.institutionLevelId ??
+                  ""
+                }
                 onChange={(e) =>
-                  updateEvaluation((current) => ({
-                    ...current,
-                    institutionLevelId:
-                      e.target.value || null,
-                  }))
+                  updateEvaluation(
+                    (current) => ({
+                      ...current,
+                      institutionLevelId:
+                        e.target.value ||
+                        null,
+                    }),
+                  )
                 }
               >
                 <option value="">
                   Toda la institución
                 </option>
 
-                {institution.levels.map((level) => (
-                  <option
-                    key={`${level.id}`}
-                    value={level.id}
-                  >
-                    {level.level}
-                    {level.empresa
-                      ? ` · ${level.empresa}`
-                      : ""}
-                  </option>
-                ))}
+                {institution.levels.map(
+                  (level) => (
+                    <option
+                      key={`${level.id}`}
+                      value={level.id}
+                    >
+                      {level.level}
+                      {level.empresa
+                        ? ` · ${level.empresa}`
+                        : ""}
+                    </option>
+                  ),
+                )}
               </select>
 
               <small>
-                Opcional. Si no seleccionás un nivel,
-                el relevamiento corresponde a toda la
+                Opcional. Si no
+                seleccionás un nivel,
+                el relevamiento
+                corresponde a toda la
                 institución.
               </small>
             </div>
@@ -442,12 +524,23 @@ function NewEvaluationContent() {
               disabled={readOnly}
               id="date"
               type="date"
-              value={evaluation.date}
+              value={
+                evaluation.date.includes(
+                  "T",
+                )
+                  ? evaluation.date.slice(
+                      0,
+                      10,
+                    )
+                  : evaluation.date
+              }
               onChange={(e) =>
-                updateEvaluation((current) => ({
-                  ...current,
-                  date: e.target.value,
-                }))
+                updateEvaluation(
+                  (current) => ({
+                    ...current,
+                    date: e.target.value,
+                  }),
+                )
               }
             />
           </div>
@@ -461,20 +554,25 @@ function NewEvaluationContent() {
               disabled={readOnly}
               id="team"
               value={
-                evaluation.managementTeamPresent === null
+                evaluation.managementTeamPresent ===
+                null
                   ? ""
                   : String(
                       evaluation.managementTeamPresent,
                     )
               }
               onChange={(e) =>
-                updateEvaluation((current) => ({
-                  ...current,
-                  managementTeamPresent:
-                    e.target.value === ""
-                      ? null
-                      : e.target.value === "true",
-                }))
+                updateEvaluation(
+                  (current) => ({
+                    ...current,
+                    managementTeamPresent:
+                      e.target.value ===
+                      ""
+                        ? null
+                        : e.target.value ===
+                          "true",
+                  }),
+                )
               }
             >
               <option value="">
@@ -494,18 +592,24 @@ function NewEvaluationContent() {
 
         <div className="field-block team-contact">
           <label htmlFor="team-contact">
-            Cargo y nombre de la persona presente
+            Cargo y nombre de la
+            persona presente
           </label>
 
           <input
             disabled={readOnly}
             id="team-contact"
-            value={evaluation.managementTeamContact}
+            value={
+              evaluation.managementTeamContact
+            }
             onChange={(e) =>
-              updateEvaluation((current) => ({
-                ...current,
-                managementTeamContact: e.target.value,
-              }))
+              updateEvaluation(
+                (current) => ({
+                  ...current,
+                  managementTeamContact:
+                    e.target.value,
+                }),
+              )
             }
             placeholder="Ej.: Directora · María Pérez"
           />
@@ -515,47 +619,65 @@ function NewEvaluationContent() {
       <section className="dimensions-nav">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">DIMENSIONES</p>
-            <h2>Seleccioná una dimensión</h2>
+            <p className="eyebrow">
+              DIMENSIONES
+            </p>
+
+            <h2>
+              Seleccioná una dimensión
+            </h2>
           </div>
         </div>
 
         <div className="dimension-tabs">
-          {dimensions.map((dimension) => (
-            <button
-              key={dimension.id}
-              type="button"
-              className={
-                activeDimension === dimension.id
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                setActiveDimension(
-                  activeDimension === dimension.id
-                    ? null
-                    : dimension.id,
-                )
-              }
-            >
-              <span>{dimension.number}</span>
+          {dimensions.map(
+            (dimension) => (
+              <button
+                key={dimension.id}
+                type="button"
+                className={
+                  activeDimension ===
+                  dimension.id
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setActiveDimension(
+                    activeDimension ===
+                      dimension.id
+                      ? null
+                      : dimension.id,
+                  )
+                }
+              >
+                <span>
+                  {dimension.number}
+                </span>
 
-              <div>
-                <strong>{dimension.title}</strong>
+                <div>
+                  <strong>
+                    {dimension.title}
+                  </strong>
 
-                <small>
-                  {dimension.indicators.length}{" "}
-                  indicadores
-                </small>
-              </div>
+                  <small>
+                    {
+                      dimension
+                        .indicators
+                        .length
+                    }{" "}
+                    indicadores
+                  </small>
+                </div>
 
-              <b>
-                {activeDimension === dimension.id
-                  ? "−"
-                  : "+"}
-              </b>
-            </button>
-          ))}
+                <b>
+                  {activeDimension ===
+                  dimension.id
+                    ? "−"
+                    : "+"}
+                </b>
+              </button>
+            ),
+          )}
         </div>
       </section>
 
@@ -564,12 +686,17 @@ function NewEvaluationContent() {
           dimension={
             dimensions.find(
               (dimension) =>
-                dimension.id === activeDimension,
+                dimension.id ===
+                activeDimension,
             )!
           }
-          responses={evaluation.responses}
+          responses={
+            evaluation.responses
+          }
           onChange={updateResponse}
-          onFieldChange={updateResponseField}
+          onFieldChange={
+            updateResponseField
+          }
           readOnly={readOnly}
         />
       )}
@@ -577,25 +704,33 @@ function NewEvaluationContent() {
       <div className="save-bar">
         {readOnly ? (
           <div>
-            <strong>Relevamiento cerrado</strong>
+            <strong>
+              Relevamiento cerrado
+            </strong>
 
             <span>
-              Versión {evaluation.version} ·{" "}
+              Versión{" "}
+              {evaluation.version} ·{" "}
               {evaluation.closedAt
                 ? `cerrado el ${new Date(
                     evaluation.closedAt,
-                  ).toLocaleString("es-AR")}`
+                  ).toLocaleString(
+                    "es-AR",
+                  )}`
                 : "solo consulta"}
               .
             </span>
           </div>
         ) : (
           <div>
-            <strong>Relevamiento en curso</strong>
+            <strong>
+              Relevamiento en curso
+            </strong>
 
             <span>
-              Podés guardar aunque no hayas completado
-              todas las dimensiones.
+              Podés guardar aunque no
+              hayas completado todas
+              las dimensiones.
             </span>
           </div>
         )}
@@ -605,7 +740,9 @@ function NewEvaluationContent() {
             <button
               className="secondary-button"
               type="button"
-              onClick={saveEvaluation}
+              onClick={
+                saveEvaluation
+              }
             >
               Guardar relevamiento
             </button>
@@ -613,7 +750,9 @@ function NewEvaluationContent() {
             <button
               className="primary-button"
               type="button"
-              onClick={closeEvaluation}
+              onClick={
+                closeEvaluation
+              }
             >
               Cerrar relevamiento
             </button>

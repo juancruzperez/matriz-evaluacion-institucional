@@ -48,3 +48,28 @@ export async function getUserAuthorization(
     permissions,
   }
 }
+
+export function hasPermission(
+  authorization: UserAuthorization,
+  permission: Permission,
+): boolean {
+  return authorization.permissions.includes(permission)
+}
+
+export function hasAnyPermission(
+  authorization: UserAuthorization,
+  permissions: Permission[],
+): boolean {
+  return permissions.some((permission) =>
+    authorization.permissions.includes(permission),
+  )
+}
+
+export function hasAllPermissions(
+  authorization: UserAuthorization,
+  permissions: Permission[],
+): boolean {
+  return permissions.every((permission) =>
+    authorization.permissions.includes(permission),
+  )
+}
