@@ -382,30 +382,40 @@ function NewEvaluationContent() {
 
     try {
       const payload = {
-        institutionId:
-          evaluation.institutionId,
-        institutionLevelId:
-          evaluation.institutionLevelId,
-        date: evaluation.date,
-        managementTeamPresent:
-          evaluation.managementTeamPresent,
-        managementTeamContact:
-          evaluation.managementTeamContact,
-        responses:
-          evaluation.responses.map(
-            (item) => ({
-              indicatorId:
-                item.indicatorId,
-              observation:
-                item.observation,
+  institutionId:
+    evaluation.institutionId,
+  institutionLevelId:
+    evaluation.institutionLevelId,
+  date: evaluation.date,
+  managementTeamPresent:
+    evaluation.managementTeamPresent ?? null,
+  managementTeamContact:
+    evaluation.managementTeamContact,
+  responses:
+    evaluation.responses.map(
+      (item) => ({
+        indicatorId:
+          item.indicatorId,
+        observation:
+          item.observation ?? "",
+        ...(item.urgency
+          ? {
               urgency: item.urgency,
-              strengths:
-                item.strengths,
+            }
+          : {}),
+        ...(item.strengths
+          ? {
+              strengths: item.strengths,
+            }
+          : {}),
+        ...(item.fields
+          ? {
               fields: item.fields,
-            }),
-          ),
-      }
-
+            }
+          : {}),
+      }),
+    ),
+}
       const response = await fetch(
         persisted
           ? `/api/evaluations/${evaluation.id}`
@@ -502,30 +512,41 @@ function NewEvaluationContent() {
 
       if (persisted) {
         const payload = {
-          institutionId:
-            evaluation.institutionId,
-          institutionLevelId:
-            evaluation.institutionLevelId,
-          date: evaluation.date,
-          managementTeamPresent:
-            evaluation.managementTeamPresent,
-          managementTeamContact:
-            evaluation.managementTeamContact,
-          responses:
-            evaluation.responses.map(
-              (item) => ({
-                indicatorId:
-                  item.indicatorId,
-                observation:
-                  item.observation,
-                urgency: item.urgency,
-                strengths:
-                  item.strengths,
-                fields: item.fields,
-              }),
-            ),
-        }
-
+  institutionId:
+    evaluation.institutionId,
+  institutionLevelId:
+    evaluation.institutionLevelId,
+  date: evaluation.date,
+  managementTeamPresent:
+    evaluation.managementTeamPresent ?? null,
+  managementTeamContact:
+    evaluation.managementTeamContact,
+  responses:
+    evaluation.responses.map(
+      (item) => ({
+        indicatorId:
+          item.indicatorId,
+        observation:
+          item.observation ?? "",
+        ...(item.urgency
+          ? {
+              urgency: item.urgency,
+            }
+          : {}),
+        ...(item.strengths
+          ? {
+              strengths: item.strengths,
+            }
+          : {}),
+        ...(item.fields
+          ? {
+              fields: item.fields,
+            }
+          : {}),
+      }),
+    ),
+}
+        
         const saveResponse =
           await fetch(
             `/api/evaluations/${evaluation.id}`,

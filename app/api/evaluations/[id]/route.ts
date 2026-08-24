@@ -43,7 +43,7 @@ type UpdateEvaluationInput = {
   institutionId: string
   institutionLevelId: string | null
   date: string
-  managementTeamPresent: boolean | null
+  managementTeamPresent: boolean | null | undefined
   managementTeamContact: string
   responses: UpdateEvaluationResponseInput[]
 }
@@ -195,6 +195,7 @@ function isValidUpdateEvaluationInput(
   }
 
   if (
+    input.managementTeamPresent !== undefined &&
     input.managementTeamPresent !== null &&
     typeof input.managementTeamPresent !== "boolean"
   ) {
@@ -459,7 +460,7 @@ export async function PATCH(
             ${body.institutionLevelId},
           date = ${body.date},
           management_team_present =
-            ${body.managementTeamPresent},
+            ${body.managementTeamPresent ?? null},
           management_team_contact =
             ${body.managementTeamContact},
           updated_by = ${userId},
@@ -512,17 +513,6 @@ export async function POST(
     params: Promise<{ id: string }>
   },
 ) {
-  /*
-   * Este endpoint existe únicamente para
-   * cerrar un relevamiento.
-   *
-   * El frontend debe enviar:
-   *
-   * {
-   *   "action": "close"
-   * }
-   */
-
   const authorization =
     await requirePermission(
       "evaluation:close",

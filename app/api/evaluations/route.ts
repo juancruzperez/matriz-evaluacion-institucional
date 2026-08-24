@@ -368,18 +368,37 @@ export async function POST(request: Request) {
       ...responseQueries,
     ])
   } catch (error) {
-    console.error(
-      "Failed to create evaluation",
-      error,
-    )
+  console.error("Failed to create evaluation", error)
 
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "23505" &&
+    "constraint" in error &&
+    error.constraint ===
+      "evaluations_one_open_per_institution_idx"
+  ) {
     return Response.json(
       {
-        error: "Unable to create evaluation",
+        error:
+          "La institución ya tiene un relevamiento abierto.",
       },
-      { status: 500 },
+      {
+        status: 409,
+      },
     )
   }
+
+  return Response.json(
+    {
+      error: "Unable to create evaluation",
+    },
+    {
+      status: 500,
+    },
+  )
+}
 
   const rows = (await sql`
     SELECT
