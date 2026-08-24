@@ -24,77 +24,137 @@ const TerritorialOverview = dynamic(
   },
 )
 
-const STORAGE_KEY = "mei:evaluations"
-
-function readEvaluations(): Evaluation[] {
-  try {
-    const parsed = JSON.parse(
-      localStorage.getItem(STORAGE_KEY) ?? "[]",
-    ) as Evaluation[]
-
-    return parsed.map((evaluation) => ({
-      ...evaluation,
-      status: evaluation.status ?? "draft",
-    }))
-  } catch {
-    return []
-  }
-}
-
 export default function Dashboard() {
-  const [evaluations, setEvaluations] = useState<Evaluation[]>([])
+  const [evaluations, setEvaluations] =
+    useState<Evaluation[]>([])
+
+  const [loadingEvaluations, setLoadingEvaluations] =
+    useState(true)
+
+  const [evaluationsError, setEvaluationsError] =
+    useState<string | null>(null)
 
   useEffect(() => {
-    const refresh = () => {
-      setEvaluations(readEvaluations())
+    let cancelled = false
+
+    async function loadEvaluations() {
+      try {
+        const response = await fetch(
+          "/api/evaluations",
+          {
+            cache: "no-store",
+          },
+        )
+
+        const data =
+          await response.json()
+
+        if (!response.ok) {
+          throw new Error(
+            data?.error ??
+              "No se pudieron cargar los relevamientos.",
+          )
+        }
+
+        if (cancelled) return
+
+        setEvaluations(
+          (data as Evaluation[]).map(
+            (evaluation) => ({
+              ...evaluation,
+              status:
+                evaluation.status ??
+                "draft",
+            }),
+          ),
+        )
+
+        setEvaluationsError(null)
+      } catch (error) {
+        if (cancelled) return
+
+        console.error(
+          "Error al cargar relevamientos",
+          error,
+        )
+
+        setEvaluationsError(
+          "No se pudieron cargar los relevamientos.",
+        )
+      } finally {
+        if (!cancelled) {
+          setLoadingEvaluations(false)
+        }
+      }
     }
 
-    refresh()
+    void loadEvaluations()
 
-    window.addEventListener("focus", refresh)
-    window.addEventListener("storage", refresh)
+    const handleFocus = () => {
+      void loadEvaluations()
+    }
+
+    window.addEventListener(
+      "focus",
+      handleFocus,
+    )
 
     return () => {
-      window.removeEventListener("focus", refresh)
-      window.removeEventListener("storage", refresh)
+      cancelled = true
+
+      window.removeEventListener(
+        "focus",
+        handleFocus,
+      )
     }
   }, [])
 
   /*
-   * La situación territorial se calcula sobre las instituciones,
-   * no sobre la cantidad de relevamientos históricos.
+   * La situación territorial se calcula sobre las
+   * instituciones y los relevamientos actuales
+   * provenientes de Neon.
    */
   const assessments = useMemo(() => {
-    return institutions.map((institution) =>
-      calculateInstitutionAssessment(
-        institution.id,
-        evaluations,
-      ),
+    return institutions.map(
+      (institution) =>
+        calculateInstitutionAssessment(
+          institution.id,
+          evaluations,
+        ),
     )
   }, [evaluations])
 
   /*
-   * Total de instituciones que forman parte del Circuito 3.
+   * Total de instituciones que forman parte
+   * del Circuito 3.
    */
-  const institutionCount = institutions.length
+  const institutionCount =
+    institutions.length
 
   /*
-   * Instituciones que ya tienen al menos un relevamiento.
+   * Instituciones que ya tienen al menos
+   * un relevamiento.
    */
-  const evaluatedInstitutionCount = useMemo(() => {
-    return assessments.filter(
-      (assessment) => assessment.evaluationCount > 0,
-    ).length
-  }, [assessments])
+  const evaluatedInstitutionCount =
+    useMemo(() => {
+      return assessments.filter(
+        (assessment) =>
+          assessment.evaluationCount > 0,
+      ).length
+    }, [assessments])
 
   /*
-   * Instituciones cuya situación actual es de criticidad alta.
+   * Instituciones cuya situación actual
+   * es de criticidad alta.
    */
-  const highCriticalityCount = useMemo(() => {
-    return assessments.filter(
-      (assessment) => assessment.criticality === "alta",
-    ).length
-  }, [assessments])
+  const highCriticalityCount =
+    useMemo(() => {
+      return assessments.filter(
+        (assessment) =>
+          assessment.criticality ===
+          "alta",
+      ).length
+    }, [assessments])
 
   /*
    * Relevamientos que todavía están abiertos.
@@ -102,7 +162,8 @@ export default function Dashboard() {
   const pendingCount = useMemo(() => {
     return evaluations.filter(
       (evaluation) =>
-        (evaluation.status ?? "draft") === "draft",
+        (evaluation.status ??
+          "draft") === "draft",
     ).length
   }, [evaluations])
 
@@ -110,13 +171,17 @@ export default function Dashboard() {
     <main className="shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">CIRCUITO 3</p>
+          <p className="eyebrow">
+            CIRCUITO 3
+          </p>
 
-          <h1>Matriz de Evaluación Institucional</h1>
+          <h1>
+            Matriz de Evaluación Institucional
+          </h1>
 
           <p className="muted">
-            Relevamiento territorial para el seguimiento
-            institucional.
+            Relevamiento territorial para el
+            seguimiento institucional.
           </p>
         </div>
 
@@ -142,40 +207,58 @@ export default function Dashboard() {
         aria-label="Resumen del Circuito 3"
       >
         <div className="metric-card">
-          <span>Instituciones</span>
+          <span>
+            Instituciones
+          </span>
 
-          <strong>{institutionCount}</strong>
+          <strong>
+            {institutionCount}
+          </strong>
 
           <small>
-            Instituciones que integran el Circuito 3.
+            Instituciones que integran el
+            Circuito 3.
           </small>
         </div>
 
         <div className="metric-card">
-          <span>Instituciones relevadas</span>
+          <span>
+            Instituciones relevadas
+          </span>
 
-          <strong>{evaluatedInstitutionCount}</strong>
+          <strong>
+            {evaluatedInstitutionCount}
+          </strong>
 
           <small>
-            Instituciones con al menos un relevamiento.
+            Instituciones con al menos un
+            relevamiento.
           </small>
         </div>
 
         <div className="metric-card">
-          <span>Criticidad alta</span>
+          <span>
+            Criticidad alta
+          </span>
 
-          <strong>{highCriticalityCount}</strong>
+          <strong>
+            {highCriticalityCount}
+          </strong>
 
           <small>
-            Instituciones con situación actual de
-            criticidad alta.
+            Instituciones con situación
+            actual de criticidad alta.
           </small>
         </div>
 
         <div className="metric-card">
-          <span>Pendientes</span>
+          <span>
+            Pendientes
+          </span>
 
-          <strong>{pendingCount}</strong>
+          <strong>
+            {pendingCount}
+          </strong>
 
           <small>
             Relevamientos todavía abiertos.
@@ -183,14 +266,29 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <TerritorialOverview />
+      {evaluationsError && (
+        <section className="dashboard-card">
+          <p className="muted">
+            {evaluationsError}
+          </p>
+        </section>
+      )}
+
+      <TerritorialOverview
+        evaluations={evaluations}
+        loading={loadingEvaluations}
+      />
 
       <section className="dashboard-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">TRABAJO EN CURSO</p>
+            <p className="eyebrow">
+              TRABAJO EN CURSO
+            </p>
 
-            <h2>Relevamientos guardados</h2>
+            <h2>
+              Relevamientos guardados
+            </h2>
           </div>
 
           <Link
@@ -202,53 +300,66 @@ export default function Dashboard() {
         </div>
 
         {evaluations.length === 0 ? (
-          <p>No hay relevamientos guardados todavía.</p>
+          <p>
+            No hay relevamientos guardados
+            todavía.
+          </p>
         ) : (
           <div className="saved-list">
-            {evaluations.map((evaluation) => {
-              const institution = institutions.find(
-                (item) =>
-                  item.id === evaluation.institutionId,
-              )
+            {evaluations.map(
+              (evaluation) => {
+                const institution =
+                  institutions.find(
+                    (item) =>
+                      item.id ===
+                      evaluation.institutionId,
+                  )
 
-              const closed =
-                evaluation.status === "closed"
+                const closed =
+                  evaluation.status ===
+                  "closed"
 
-              return (
-                <div
-                  className="saved-item"
-                  key={evaluation.id}
-                >
-                  <div>
-                    <strong>
-                      {institution?.name ??
-                        "Institución no encontrada"}
-                    </strong>
-
-                    <span>
-                      {evaluation.institutionLevelId
-                        ? institution?.levels.find(
-                          (level) =>
-                            level.id === evaluation.institutionLevelId,
-                          )?.level ?? "Nivel no encontrado"
-                        : "Toda la institución"}{" "}
-                      · {evaluation.date} · versión{" "}
-                      {evaluation.version} ·{" "}
-                      {closed ? "Cerrado" : "En curso"}
-                    </span>
-                  </div>
-
-                  <Link
-                    className="text-link"
-                    href={`/relevamientos/nuevo?evaluation=${evaluation.id}`}
+                return (
+                  <div
+                    className="saved-item"
+                    key={evaluation.id}
                   >
-                    {closed
-                      ? "Consultar →"
-                      : "Continuar →"}
-                  </Link>
-                </div>
-              )
-            })}
+                    <div>
+                      <strong>
+                        {institution?.name ??
+                          "Institución no encontrada"}
+                      </strong>
+
+                      <span>
+                        {evaluation.institutionLevelId
+                          ? institution?.levels.find(
+                              (level) =>
+                                level.id ===
+                                evaluation.institutionLevelId,
+                            )?.level ??
+                            "Nivel no encontrado"
+                          : "Toda la institución"}{" "}
+                        · {evaluation.date} ·
+                        versión{" "}
+                        {evaluation.version} ·{" "}
+                        {closed
+                          ? "Cerrado"
+                          : "En curso"}
+                      </span>
+                    </div>
+
+                    <Link
+                      className="text-link"
+                      href={`/relevamientos/nuevo?evaluation=${evaluation.id}`}
+                    >
+                      {closed
+                        ? "Consultar →"
+                        : "Continuar →"}
+                    </Link>
+                  </div>
+                )
+              },
+            )}
           </div>
         )}
       </section>

@@ -19,52 +19,96 @@ type EvaluationRow = {
   created_at: string
   updated_at: string
   closed_at: string | null
-  responses: EvaluationResponse[]
 }
 
-type CreateEvaluationResponseInput = {
+type EvaluationResponseRow = {
+  id: string
+  evaluation_id: string
+  indicator_id: string
+  observation: string
+  urgency: EvaluationResponse["urgency"] | null
+  strengths: string | null
+  fields: Record<string, string | string[]> | null
+}
+
+type UpdateEvaluationResponseInput = {
   indicatorId: string
   observation?: string
   urgency?: EvaluationResponse["urgency"]
-  strengths?: string
+  strengths?: string | null
   fields?: Record<string, string | string[]>
 }
 
-type CreateEvaluationInput = {
+type UpdateEvaluationInput = {
   institutionId: string
   institutionLevelId: string | null
   date: string
   managementTeamPresent: boolean | null
   managementTeamContact: string
-  responses: CreateEvaluationResponseInput[]
+  responses: UpdateEvaluationResponseInput[]
 }
 
-const validUrgencies = new Set([
-  "alto",
-  "medio",
-  "bajo",
-])
+function mapEvaluationRow(
+  row: EvaluationRow,
+  responses: EvaluationResponse[],
+): Evaluation {
+  return {
+    id: row.id,
+    version: row.version,
+    status: row.status,
+    institutionId: row.institution_id,
+    institutionLevelId: row.institution_level_id,
+    date: row.date,
+    managementTeamPresent:
+      row.management_team_present,
+    managementTeamContact:
+      row.management_team_contact,
+    responses,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedBy: row.updated_by,
+    updatedAt: row.updated_at,
+    ...(row.closed_at
+      ? {
+          closedAt: row.closed_at,
+        }
+      : {}),
+  }
+}
+
+function normalizeDate(
+  value: unknown,
+): string | null {
+  if (typeof value !== "string") {
+    return null
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value
+  }
+
+  const parsed = new Date(value)
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null
+  }
+
+  return parsed.toISOString().slice(0, 10)
+}
 
 function isValidUrgency(
   value: unknown,
 ): value is EvaluationResponse["urgency"] {
   return (
-    typeof value === "string" &&
-    validUrgencies.has(value)
+    value === "alto" ||
+    value === "medio" ||
+    value === "bajo"
   )
-}
-
-function isValidDate(value: unknown): value is string {
-  if (typeof value !== "string") {
-    return false
-  }
-
-  return /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
 
 function isValidResponse(
   value: unknown,
-): value is CreateEvaluationResponseInput {
+): value is UpdateEvaluationResponseInput {
   if (
     typeof value !== "object" ||
     value === null
@@ -90,17 +134,17 @@ function isValidResponse(
   }
 
   if (
-    response.strengths !== undefined &&
-    response.strengths !== null &&
-    typeof response.strengths !== "string"
+    response.urgency !== undefined &&
+    response.urgency !== null &&
+    !isValidUrgency(response.urgency)
   ) {
     return false
   }
 
   if (
-    response.urgency !== undefined &&
-    response.urgency !== null &&
-    !isValidUrgency(response.urgency)
+    response.strengths !== undefined &&
+    response.strengths !== null &&
+    typeof response.strengths !== "string"
   ) {
     return false
   }
@@ -119,9 +163,9 @@ function isValidResponse(
   return true
 }
 
-function isValidCreateEvaluationInput(
+function isValidUpdateEvaluationInput(
   value: unknown,
-): value is CreateEvaluationInput {
+): value is UpdateEvaluationInput {
   if (
     typeof value !== "object" ||
     value === null
@@ -141,19 +185,17 @@ function isValidCreateEvaluationInput(
 
   if (
     input.institutionLevelId !== null &&
-    input.institutionLevelId !== undefined &&
     typeof input.institutionLevelId !== "string"
   ) {
     return false
   }
 
-  if (!isValidDate(input.date)) {
+  if (!normalizeDate(input.date)) {
     return false
   }
 
   if (
     input.managementTeamPresent !== null &&
-    input.managementTeamPresent !== undefined &&
     typeof input.managementTeamPresent !== "boolean"
   ) {
     return false
@@ -175,10 +217,88 @@ function isValidCreateEvaluationInput(
   return true
 }
 
-export async function GET() {
-  const authorization = await requirePermission(
-    "evaluation:read",
+async function loadEvaluation(
+  id: string,
+): Promise<Evaluation | null> {
+  const evaluationRows = (await sql`
+    SELECT
+      id,
+      version,
+      status,
+      institution_id,
+      institution_level_id,
+      date,
+      management_team_present,
+      management_team_contact,
+      created_by,
+      updated_by,
+      created_at,
+      updated_at,
+      closed_at
+    FROM evaluations
+    WHERE id = ${id}
+    LIMIT 1
+  `) as EvaluationRow[]
+
+  const evaluation = evaluationRows[0]
+
+  if (!evaluation) {
+    return null
+  }
+
+  const responseRows = (await sql`
+    SELECT
+      id,
+      evaluation_id,
+      indicator_id,
+      observation,
+      urgency,
+      strengths,
+      fields
+    FROM evaluation_responses
+    WHERE evaluation_id = ${id}
+    ORDER BY indicator_id
+  `) as EvaluationResponseRow[]
+
+  const responses: EvaluationResponse[] =
+    responseRows.map((row) => ({
+      id: row.id,
+      evaluationId: row.evaluation_id,
+      indicatorId: row.indicator_id,
+      observation: row.observation,
+      ...(row.urgency
+        ? {
+            urgency: row.urgency,
+          }
+        : {}),
+      ...(row.strengths
+        ? {
+            strengths: row.strengths,
+          }
+        : {}),
+      ...(row.fields
+        ? {
+            fields: row.fields,
+          }
+        : {}),
+    }))
+
+  return mapEvaluationRow(
+    evaluation,
+    responses,
   )
+}
+
+export async function GET(
+  _request: Request,
+  context: {
+    params: Promise<{ id: string }>
+  },
+) {
+  const authorization =
+    await requirePermission(
+      "evaluation:read",
+    )
 
   if (!authorization.authorized) {
     return Response.json(
@@ -194,92 +314,35 @@ export async function GET() {
     )
   }
 
-  const rows = (await sql`
-    SELECT
-      e.id,
-      e.version,
-      e.status,
-      e.institution_id,
-      e.institution_level_id,
-      e.date,
-      e.management_team_present,
-      e.management_team_contact,
-      e.created_by,
-      e.updated_by,
-      e.created_at,
-      e.updated_at,
-      e.closed_at,
-      COALESCE(
-        json_agg(
-          json_build_object(
-            'id', er.id,
-            'evaluationId', er.evaluation_id,
-            'indicatorId', er.indicator_id,
-            'observation', er.observation,
-            'urgency', er.urgency,
-            'strengths', er.strengths,
-            'fields', er.fields
-          )
-          ORDER BY er.indicator_id
-        ) FILTER (WHERE er.id IS NOT NULL),
-        '[]'::json
-      ) AS responses
-    FROM evaluations e
-    LEFT JOIN evaluation_responses er
-      ON er.evaluation_id = e.id
-    GROUP BY
-      e.id,
-      e.version,
-      e.status,
-      e.institution_id,
-      e.institution_level_id,
-      e.date,
-      e.management_team_present,
-      e.management_team_contact,
-      e.created_by,
-      e.updated_by,
-      e.created_at,
-      e.updated_at,
-      e.closed_at
-    ORDER BY e.updated_at DESC
-  `) as EvaluationRow[]
+  const { id } = await context.params
 
-  const evaluations = rows.map(
-    (row) =>
-      ({
-        id: row.id,
-        version: row.version,
-        status: row.status,
-        institutionId: row.institution_id,
-        institutionLevelId:
-          row.institution_level_id,
-        date: row.date,
-        managementTeamPresent:
-          row.management_team_present,
-        managementTeamContact:
-          row.management_team_contact,
-        createdBy: row.created_by,
-        createdAt: row.created_at,
-        updatedBy: row.updated_by,
-        updatedAt: row.updated_at,
-        ...(row.closed_at
-          ? {
-              closedAt: row.closed_at,
-            }
-          : {}),
-        responses: row.responses,
-      }) satisfies Evaluation,
-  )
+  const evaluation =
+    await loadEvaluation(id)
 
-  return Response.json(evaluations)
+  if (!evaluation) {
+    return Response.json(
+      {
+        error: "Evaluation not found",
+      },
+      {
+        status: 404,
+      },
+    )
+  }
+
+  return Response.json(evaluation)
 }
 
-export async function POST(
+export async function PATCH(
   request: Request,
+  context: {
+    params: Promise<{ id: string }>
+  },
 ) {
-  const authorization = await requirePermission(
-    "evaluation:create",
-  )
+  const authorization =
+    await requirePermission(
+      "evaluation:update",
+    )
 
   if (!authorization.authorized) {
     return Response.json(
@@ -291,6 +354,34 @@ export async function POST(
       },
       {
         status: authorization.status,
+      },
+    )
+  }
+
+  const { id } = await context.params
+
+  const existing =
+    await loadEvaluation(id)
+
+  if (!existing) {
+    return Response.json(
+      {
+        error: "Evaluation not found",
+      },
+      {
+        status: 404,
+      },
+    )
+  }
+
+  if (existing.status === "closed") {
+    return Response.json(
+      {
+        error:
+          "Closed evaluations cannot be edited",
+      },
+      {
+        status: 409,
       },
     )
   }
@@ -310,7 +401,7 @@ export async function POST(
     )
   }
 
-  if (!isValidCreateEvaluationInput(body)) {
+  if (!isValidUpdateEvaluationInput(body)) {
     return Response.json(
       {
         error: "Invalid evaluation payload",
@@ -321,41 +412,11 @@ export async function POST(
     )
   }
 
-  /*
-   * Regla de negocio:
-   * una institución no puede tener más de un
-   * relevamiento abierto simultáneamente.
-   *
-   * Si ya existe uno, devolvemos su ID para que
-   * el frontend pueda continuar ese relevamiento.
-   */
-  const existingRows = (await sql`
-    SELECT id
-    FROM evaluations
-    WHERE institution_id = ${body.institutionId}
-      AND status <> 'closed'
-    ORDER BY updated_at DESC
-    LIMIT 1
-  `) as { id: string }[]
-
-  const existingEvaluation = existingRows[0]
-
-  if (existingEvaluation) {
-    return Response.json(
-      {
-        error:
-          "Institution already has an open evaluation",
-        evaluationId: existingEvaluation.id,
-      },
-      {
-        status: 409,
-      },
-    )
-  }
-
-  const evaluationId = crypto.randomUUID()
   const userId =
     authorization.session.user.id
+
+  const nextVersion =
+    existing.version + 1
 
   const responseQueries =
     body.responses.map(
@@ -375,7 +436,7 @@ export async function POST(
           )
           VALUES (
             ${responseId},
-            ${evaluationId},
+            ${id},
             ${response.indicatorId},
             ${response.observation ?? ""},
             ${response.urgency ?? null},
@@ -389,83 +450,37 @@ export async function POST(
   try {
     await sql.transaction([
       sql`
-        INSERT INTO evaluations (
-          id,
-          version,
-          status,
-          institution_id,
-          institution_level_id,
-          date,
-          management_team_present,
-          management_team_contact,
-          created_by,
-          updated_by
-        )
-        VALUES (
-          ${evaluationId},
-          1,
-          'draft',
-          ${body.institutionId},
-          ${body.institutionLevelId},
-          ${body.date},
-          ${body.managementTeamPresent},
-          ${body.managementTeamContact},
-          ${userId},
-          ${userId}
-        )
+        UPDATE evaluations
+        SET
+          version = ${nextVersion},
+          institution_id =
+            ${body.institutionId},
+          institution_level_id =
+            ${body.institutionLevelId},
+          date = ${body.date},
+          management_team_present =
+            ${body.managementTeamPresent},
+          management_team_contact =
+            ${body.managementTeamContact},
+          updated_by = ${userId},
+          updated_at = NOW()
+        WHERE id = ${id}
+      `,
+      sql`
+        DELETE FROM evaluation_responses
+        WHERE evaluation_id = ${id}
       `,
       ...responseQueries,
     ])
   } catch (error) {
-    /*
-     * La restricción UNIQUE parcial de Neon es la
-     * última barrera contra condiciones de carrera.
-     *
-     * Si dos requests llegan simultáneamente,
-     * uno puede pasar la consulta anterior pero
-     * perder el INSERT por la restricción.
-     */
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "23505"
-    ) {
-      const concurrentRows = (await sql`
-        SELECT id
-        FROM evaluations
-        WHERE institution_id = ${body.institutionId}
-          AND status <> 'closed'
-        ORDER BY updated_at DESC
-        LIMIT 1
-      `) as { id: string }[]
-
-      const concurrentEvaluation =
-        concurrentRows[0]
-
-      if (concurrentEvaluation) {
-        return Response.json(
-          {
-            error:
-              "Institution already has an open evaluation",
-            evaluationId:
-              concurrentEvaluation.id,
-          },
-          {
-            status: 409,
-          },
-        )
-      }
-    }
-
     console.error(
-      "Failed to create evaluation",
+      "Failed to update evaluation",
       error,
     )
 
     return Response.json(
       {
-        error: "Unable to create evaluation",
+        error: "Unable to update evaluation",
       },
       {
         status: 500,
@@ -473,64 +488,14 @@ export async function POST(
     )
   }
 
-  const rows = (await sql`
-    SELECT
-      e.id,
-      e.version,
-      e.status,
-      e.institution_id,
-      e.institution_level_id,
-      e.date,
-      e.management_team_present,
-      e.management_team_contact,
-      e.created_by,
-      e.updated_by,
-      e.created_at,
-      e.updated_at,
-      e.closed_at,
-      COALESCE(
-        json_agg(
-          json_build_object(
-            'id', er.id,
-            'evaluationId', er.evaluation_id,
-            'indicatorId', er.indicator_id,
-            'observation', er.observation,
-            'urgency', er.urgency,
-            'strengths', er.strengths,
-            'fields', er.fields
-          )
-          ORDER BY er.indicator_id
-        ) FILTER (WHERE er.id IS NOT NULL),
-        '[]'::json
-      ) AS responses
-    FROM evaluations e
-    LEFT JOIN evaluation_responses er
-      ON er.evaluation_id = e.id
-    WHERE e.id = ${evaluationId}
-    GROUP BY
-      e.id,
-      e.version,
-      e.status,
-      e.institution_id,
-      e.institution_level_id,
-      e.date,
-      e.management_team_present,
-      e.management_team_contact,
-      e.created_by,
-      e.updated_by,
-      e.created_at,
-      e.updated_at,
-      e.closed_at
-    LIMIT 1
-  `) as EvaluationRow[]
+  const updated =
+    await loadEvaluation(id)
 
-  const row = rows[0]
-
-  if (!row) {
+  if (!updated) {
     return Response.json(
       {
         error:
-          "Evaluation created but could not be loaded",
+          "Evaluation updated but could not be loaded",
       },
       {
         status: 500,
@@ -538,35 +503,152 @@ export async function POST(
     )
   }
 
-  const evaluation = {
-    id: row.id,
-    version: row.version,
-    status: row.status,
-    institutionId:
-      row.institution_id,
-    institutionLevelId:
-      row.institution_level_id,
-    date: row.date,
-    managementTeamPresent:
-      row.management_team_present,
-    managementTeamContact:
-      row.management_team_contact,
-    createdBy: row.created_by,
-    createdAt: row.created_at,
-    updatedBy: row.updated_by,
-    updatedAt: row.updated_at,
-    ...(row.closed_at
-      ? {
-          closedAt: row.closed_at,
-        }
-      : {}),
-    responses: row.responses,
-  } satisfies Evaluation
+  return Response.json(updated)
+}
 
-  return Response.json(
-    evaluation,
-    {
-      status: 201,
-    },
-  )
+export async function POST(
+  request: Request,
+  context: {
+    params: Promise<{ id: string }>
+  },
+) {
+  /*
+   * Este endpoint existe únicamente para
+   * cerrar un relevamiento.
+   *
+   * El frontend debe enviar:
+   *
+   * {
+   *   "action": "close"
+   * }
+   */
+
+  const authorization =
+    await requirePermission(
+      "evaluation:close",
+    )
+
+  if (!authorization.authorized) {
+    return Response.json(
+      {
+        error:
+          authorization.status === 401
+            ? "Unauthorized"
+            : "Forbidden",
+      },
+      {
+        status: authorization.status,
+      },
+    )
+  }
+
+  const { id } = await context.params
+
+  const existing =
+    await loadEvaluation(id)
+
+  if (!existing) {
+    return Response.json(
+      {
+        error: "Evaluation not found",
+      },
+      {
+        status: 404,
+      },
+    )
+  }
+
+  if (existing.status === "closed") {
+    return Response.json(
+      {
+        error:
+          "Evaluation is already closed",
+      },
+      {
+        status: 409,
+      },
+    )
+  }
+
+  let body: unknown
+
+  try {
+    body = await request.json()
+  } catch {
+    return Response.json(
+      {
+        error: "Invalid JSON body",
+      },
+      {
+        status: 400,
+      },
+    )
+  }
+
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    (body as Record<string, unknown>).action !==
+      "close"
+  ) {
+    return Response.json(
+      {
+        error: "Invalid close payload",
+      },
+      {
+        status: 400,
+      },
+    )
+  }
+
+  const userId =
+    authorization.session.user.id
+
+  const nextVersion =
+    existing.version + 1
+
+  try {
+    await sql`
+      UPDATE evaluations
+      SET
+        status = 'closed',
+        version = ${nextVersion},
+        closed_at = NOW(),
+        updated_by = ${userId},
+        updated_at = NOW()
+      WHERE id = ${id}
+        AND status <> 'closed'
+    `
+  } catch (error) {
+    console.error(
+      "Failed to close evaluation",
+      error,
+    )
+
+    return Response.json(
+      {
+        error: "Unable to close evaluation",
+      },
+      {
+        status: 500,
+      },
+    )
+  }
+
+  const closed =
+    await loadEvaluation(id)
+
+  if (!closed) {
+    return Response.json(
+      {
+        error:
+          "Evaluation closed but could not be loaded",
+      },
+      {
+        status: 500,
+      },
+    )
+  }
+
+  return Response.json(closed)
 }

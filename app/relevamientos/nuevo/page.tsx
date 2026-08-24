@@ -8,7 +8,7 @@ import {
   useMemo,
   useState,
 } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { institutions } from "@/data/institutions"
 import { dimensions } from "@/lib/evaluation-template"
 import {
@@ -44,17 +44,34 @@ function createEvaluation(): Evaluation {
 
 function NewEvaluationContent() {
   const searchParams = useSearchParams()
+  const router = useRouter()
 
   const [evaluation, setEvaluation] =
     useState<Evaluation>(() =>
       createEvaluation(),
     )
 
-  const [persisted, setPersisted] = useState(false)
+  const [persisted, setPersisted] =
+    useState(false)
 
   const [activeDimension, setActiveDimension] =
     useState<string | null>(null)
 
+  const [loadingEvaluation, setLoadingEvaluation] =
+    useState(false)
+
+  const [redirectingToOpenEvaluation, setRedirectingToOpenEvaluation] =
+    useState(false)
+
+  const [loadError, setLoadError] =
+    useState<string | null>(null)
+
+  /*
+   * Carga de un relevamiento existente.
+   *
+   * Si llega ?evaluation=ID, la fuente de verdad
+   * es Neon mediante GET /api/evaluations/:id.
+   */
   useEffect(() => {
     const evaluationId =
       searchParams.get("evaluation")
@@ -62,18 +79,25 @@ function NewEvaluationContent() {
     if (evaluationId) {
       async function loadEvaluation() {
         try {
+          setLoadingEvaluation(true)
+          setLoadError(null)
+
           const response = await fetch(
             `/api/evaluations/${evaluationId}`,
           )
 
+          const data =
+            await response.json()
+
           if (!response.ok) {
             throw new Error(
-              `Unable to load evaluation: ${response.status}`,
+              data?.error ??
+                `Unable to load evaluation: ${response.status}`,
             )
           }
 
           const loaded =
-            (await response.json()) as Evaluation
+            data as Evaluation
 
           startTransition(() => {
             setEvaluation(loaded)
@@ -84,6 +108,14 @@ function NewEvaluationContent() {
             "Error al cargar el relevamiento",
             error,
           )
+
+          startTransition(() => {
+            setLoadError(
+              "No se pudo cargar el relevamiento.",
+            )
+          })
+        } finally {
+          setLoadingEvaluation(false)
         }
       }
 
@@ -92,30 +124,122 @@ function NewEvaluationContent() {
       return
     }
 
-    const institutionId =
+    /*
+     * Si llega ?institution=ID estamos intentando
+     * iniciar un nuevo relevamiento.
+     *
+     * Antes de permitirlo consultamos Neon para
+     * verificar si ya existe uno abierto.
+     */
+    const institutionParam =
       searchParams.get("institution")
 
-    if (
-      institutionId &&
+    if (!institutionParam) {
+      return
+    }
+
+    const institutionId =
+      institutionParam
+
+    const institutionExists =
       institutions.some(
         (item) => item.id === institutionId,
       )
-    ) {
-      startTransition(() => {
-        setEvaluation((current) => ({
-          ...current,
-          institutionId,
-          institutionLevelId: null,
-        }))
 
-        setPersisted(false)
+    if (!institutionExists) {
+      startTransition(() => {
+        setLoadError(
+          "La institución seleccionada no existe.",
+        )
       })
+
+      return
     }
-  }, [searchParams])
+
+    async function checkOpenEvaluation() {
+      try {
+        setLoadingEvaluation(true)
+        setLoadError(null)
+
+        const response = await fetch(
+          "/api/evaluations",
+        )
+
+        const data =
+          await response.json()
+
+        if (!response.ok) {
+          throw new Error(
+            data?.error ??
+              "No se pudieron consultar los relevamientos.",
+          )
+        }
+
+        const evaluations =
+          data as Evaluation[]
+
+        const openEvaluation =
+          evaluations.find(
+            (item) =>
+              item.institutionId ===
+                institutionId &&
+              item.status !== "closed",
+          )
+
+        /*
+         * Ya existe un relevamiento abierto:
+         * no creamos uno nuevo y llevamos al
+         * usuario directamente al existente.
+         */
+        if (openEvaluation) {
+          setRedirectingToOpenEvaluation(
+            true,
+          )
+
+          router.replace(
+            `/relevamientos/nuevo?evaluation=${openEvaluation.id}`,
+          )
+
+          return
+        }
+
+        /*
+         * No existe relevamiento abierto:
+         * podemos comenzar uno nuevo.
+         */
+        startTransition(() => {
+          setEvaluation((current) => ({
+            ...current,
+            institutionId,
+            institutionLevelId: null,
+          }))
+
+          setPersisted(false)
+        })
+      } catch (error) {
+        console.error(
+          "Error al verificar relevamiento abierto",
+          error,
+        )
+
+        startTransition(() => {
+          setLoadError(
+            "No se pudo verificar si la institución tiene un relevamiento abierto.",
+          )
+        })
+      } finally {
+        setLoadingEvaluation(false)
+      }
+    }
+
+    void checkOpenEvaluation()
+  }, [searchParams, router])
 
   const institution =
     institutions.find(
-      (item) => item.id === evaluation.institutionId,
+      (item) =>
+        item.id ===
+        evaluation.institutionId,
     ) ?? null
 
   const readOnly =
@@ -303,6 +427,24 @@ function NewEvaluationContent() {
       const data =
         await response.json()
 
+      /*
+       * Segunda barrera:
+       * si otra persona creó un relevamiento
+       * entre nuestra consulta inicial y este
+       * POST, el backend devuelve 409 con
+       * evaluationId.
+       */
+      if (
+        response.status === 409 &&
+        data?.evaluationId
+      ) {
+        router.replace(
+          `/relevamientos/nuevo?evaluation=${data.evaluationId}`,
+        )
+
+        return
+      }
+
       if (!response.ok) {
         throw new Error(
           data?.error ??
@@ -331,38 +473,214 @@ function NewEvaluationContent() {
     }
   }
 
-  function closeEvaluation() {
+  async function closeEvaluation() {
     if (readOnly) return
 
     if (completedIndicators === 0) {
       alert(
         "No se puede cerrar el relevamiento porque está completamente vacío.",
       )
+
       return
     }
 
-    const confirmed =
-      window.confirm(
-        "¿Cerrar este relevamiento? Una vez cerrado no podrá editarse y quedará disponible solo para consulta.",
-      )
+    const confirmed = window.confirm(
+      "¿Cerrar este relevamiento? Una vez cerrado no podrá editarse y quedará disponible solo para consulta.",
+    )
 
     if (!confirmed) return
 
-    const current = {
-      ...evaluation,
-      status: "closed" as const,
-      version:
-        evaluation.version + 1,
-      closedAt:
-        new Date().toISOString(),
-      updatedAt:
-        new Date().toISOString(),
+    try {
+      /*
+       * Si hay cambios realizados desde el último guardado,
+       * primero los persistimos mediante PATCH.
+       *
+       * De esta manera nunca cerramos en Neon una versión
+       * anterior a lo que el usuario está viendo.
+       */
+      let currentEvaluation = evaluation
+
+      if (persisted) {
+        const payload = {
+          institutionId:
+            evaluation.institutionId,
+          institutionLevelId:
+            evaluation.institutionLevelId,
+          date: evaluation.date,
+          managementTeamPresent:
+            evaluation.managementTeamPresent,
+          managementTeamContact:
+            evaluation.managementTeamContact,
+          responses:
+            evaluation.responses.map(
+              (item) => ({
+                indicatorId:
+                  item.indicatorId,
+                observation:
+                  item.observation,
+                urgency: item.urgency,
+                strengths:
+                  item.strengths,
+                fields: item.fields,
+              }),
+            ),
+        }
+
+        const saveResponse =
+          await fetch(
+            `/api/evaluations/${evaluation.id}`,
+            {
+              method: "PATCH",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify(
+                payload,
+              ),
+            },
+          )
+
+        const saveData =
+          await saveResponse.json()
+
+        if (!saveResponse.ok) {
+          throw new Error(
+            saveData?.error ??
+              "No se pudieron guardar los cambios antes de cerrar.",
+          )
+        }
+
+        currentEvaluation =
+          saveData as Evaluation
+
+        setEvaluation(
+          currentEvaluation,
+        )
+      }
+
+      /*
+       * Ahora cerramos realmente en Neon.
+       */
+      const closeResponse =
+        await fetch(
+          `/api/evaluations/${currentEvaluation.id}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              action: "close",
+            }),
+          },
+        )
+
+      const closeData =
+        await closeResponse.json()
+
+      if (!closeResponse.ok) {
+        throw new Error(
+          closeData?.error ??
+            "No se pudo cerrar el relevamiento.",
+        )
+      }
+
+      const closedEvaluation =
+        closeData as Evaluation
+
+      setEvaluation(
+        closedEvaluation,
+      )
+      setPersisted(true)
+
+      alert(
+        `Relevamiento cerrado · versión ${closedEvaluation.version}`,
+      )
+    } catch (error) {
+      console.error(
+        "Error al cerrar el relevamiento",
+        error,
+      )
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "No se pudo cerrar el relevamiento.",
+      )
     }
+  }
 
-    setEvaluation(current)
+  /*
+   * Mientras verificamos si existe un relevamiento
+   * abierto, no mostramos el formulario para evitar
+   * que el usuario empiece a completar uno que luego
+   * será descartado.
+   */
+  if (
+    loadingEvaluation ||
+    redirectingToOpenEvaluation
+  ) {
+    return (
+      <main className="shell narrow">
+        <section className="form-card">
+          <p className="eyebrow">
+            RELEVAMIENTO INSTITUCIONAL
+          </p>
 
-    alert(
-      `Relevamiento cerrado · versión ${current.version}`,
+          <h1>
+            {redirectingToOpenEvaluation
+              ? "Relevamiento ya iniciado"
+              : "Verificando relevamiento"}
+          </h1>
+
+          <p className="muted">
+            {redirectingToOpenEvaluation
+              ? "La institución ya tiene un relevamiento abierto. Te estamos llevando al relevamiento existente."
+              : "Consultando los relevamientos existentes..."}
+          </p>
+        </section>
+      </main>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <main className="shell narrow">
+        <section className="form-card">
+          <p className="eyebrow">
+            RELEVAMIENTO INSTITUCIONAL
+          </p>
+
+          <h1>
+            No se pudo cargar
+          </h1>
+
+          <p className="muted">
+            {loadError}
+          </p>
+
+          <div className="save-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() =>
+                window.location.reload()
+              }
+            >
+              Reintentar
+            </button>
+
+            <Link
+              className="primary-button"
+              href="/instituciones"
+            >
+              Volver a instituciones
+            </Link>
+          </div>
+        </section>
+      </main>
     )
   }
 
