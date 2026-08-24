@@ -2,12 +2,15 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { institutions } from "@/data/institutions"
-import { dimensions } from "@/data/evaluation-template"
-import { calculateInstitutionAssessment, URGENCY_WEIGHT, type Criticality } from "@/lib/criticality"
+import { dimensions } from "@/lib/evaluation-template"
+import {
+  calculateInstitutionAssessment,
+  URGENCY_WEIGHT,
+  type Criticality,
+} from "@/lib/criticality"
+import { getEvaluationResponse } from "@/lib/evaluation-responses"
 import type { Evaluation, Urgency } from "@/types/evaluation"
-
-const STORAGE_KEY = "mei:evaluations"
+import type { Institution } from "@/types/institution"
 
 const criticalityOrder: Record<Criticality, number> = {
   alta: 0,
@@ -16,48 +19,95 @@ const criticalityOrder: Record<Criticality, number> = {
   "sin-relevamiento": 3,
 }
 
-const urgencyWeight: Record<Urgency, number> = URGENCY_WEIGHT
-
-function readEvaluations(): Evaluation[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]") as Evaluation[]
-    return parsed.map((evaluation) => ({ ...evaluation, status: evaluation.status ?? "draft" }))
-  } catch {
-    return []
-  }
-}
+const urgencyWeight: Record<Urgency, number> =
+  URGENCY_WEIGHT
 
 function criticalityLabel(value: Criticality) {
-  if (value === "sin-relevamiento") return "Sin relevamiento"
+  if (value === "sin-relevamiento") {
+    return "Sin relevamiento"
+  }
+
   return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function parseDate(date: string) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const [year, month, day] = date
+      .split("-")
+      .map(Number)
+
+    return new Date(year, month - 1, day)
+  }
+
+  return new Date(date)
 }
 
 function daysSince(date: string | null) {
   if (!date) return null
-  const last = new Date(`${date}T00:00:00`)
+
+  const last = parseDate(date)
+
+  if (Number.isNaN(last.getTime())) {
+    return null
+  }
+
   const today = new Date()
-  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  const diff = Math.floor((startOfToday.getTime() - last.getTime()) / 86400000)
+
+  const startOfToday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  )
+
+  const lastDay = new Date(
+    last.getFullYear(),
+    last.getMonth(),
+    last.getDate(),
+  )
+
+  const diff = Math.floor(
+    (startOfToday.getTime() - lastDay.getTime()) /
+      86400000,
+  )
+
   return Math.max(0, diff)
 }
 
 function formatDate(date: string) {
+  const parsed = parseDate(date)
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "Fecha no disponible"
+  }
+
   return new Intl.DateTimeFormat("es-AR", {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  }).format(new Date(`${date}T00:00:00`))
+  }).format(parsed)
 }
 
 function urgencyLabel(value?: Urgency) {
   if (!value) return "Sin urgencia registrada"
+
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-function criticalityFromScore(score: number | null): Criticality {
-  if (score === null) return "sin-relevamiento"
-  if (score >= 0.75) return "alta"
-  if (score >= 0.5) return "media"
+function criticalityFromScore(
+  score: number | null,
+): Criticality {
+  if (score === null) {
+    return "sin-relevamiento"
+  }
+
+  if (score >= 0.75) {
+    return "alta"
+  }
+
+  if (score >= 0.5) {
+    return "media"
+  }
+
   return "baja"
 }
 
@@ -66,7 +116,7 @@ function dimensionAssessment(evaluation: Evaluation, dimensionId: string) {
   if (!dimension) return null
 
   const values = dimension.indicators
-    .map((indicator) => evaluation.responses[indicator.id]?.urgency)
+    .map((indicator) => getEvaluationResponse(evaluation.responses, indicator.id)?.urgency)
     .filter((urgency): urgency is Urgency => Boolean(urgency))
     .map((urgency) => urgencyWeight[urgency])
 
@@ -82,7 +132,7 @@ function dimensionEntries(evaluation: Evaluation, dimensionId: string) {
   if (!dimension) return []
 
   return dimension.indicators.flatMap((indicator) => {
-    const response = evaluation.responses[indicator.id]
+    const response = getEvaluationResponse(evaluation.responses, indicator.id)
     if (!response) return []
     const fields = Object.entries(response.fields ?? {})
       .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
@@ -99,19 +149,68 @@ function dimensionEntries(evaluation: Evaluation, dimensionId: string) {
 }
 
 export default function InstitutionsPage() {
+  const [institutions, setInstitutions] = useState<Institution[]>([])
   const [evaluations, setEvaluations] = useState<Evaluation[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [institutionsLoading, setInstitutionsLoading] = useState(true)
+  const [institutionsError, setInstitutionsError] = useState<string | null>(null)
 
   useEffect(() => {
-    const refresh = () => setEvaluations(readEvaluations())
-    refresh()
-    window.addEventListener("focus", refresh)
-    window.addEventListener("storage", refresh)
-    return () => {
-      window.removeEventListener("focus", refresh)
-      window.removeEventListener("storage", refresh)
+  const loadData = async () => {
+    try {
+      setInstitutionsLoading(true)
+      setInstitutionsError(null)
+
+      const [
+        institutionsResponse,
+        evaluationsResponse,
+      ] = await Promise.all([
+        fetch("/api/institutions"),
+        fetch("/api/evaluations"),
+      ])
+
+      if (!institutionsResponse.ok) {
+        throw new Error(
+          "No se pudieron cargar las instituciones",
+        )
+      }
+
+      if (!evaluationsResponse.ok) {
+        throw new Error(
+          "No se pudieron cargar los relevamientos",
+        )
+      }
+
+      const [
+        institutionsData,
+        evaluationsData,
+      ] = await Promise.all([
+        institutionsResponse.json() as Promise<Institution[]>,
+        evaluationsResponse.json() as Promise<Evaluation[]>,
+      ])
+
+      setInstitutions(institutionsData)
+
+      setEvaluations(
+        evaluationsData.map((evaluation) => ({
+          ...evaluation,
+          status:
+            evaluation.status ?? "draft",
+        })),
+      )
+    } catch (error) {
+      console.error(error)
+
+      setInstitutionsError(
+        "No se pudieron cargar los datos institucionales.",
+      )
+    } finally {
+      setInstitutionsLoading(false)
     }
-  }, [])
+  }
+
+  loadData()
+}, [])
 
   const assessments = useMemo(() => {
     return institutions
@@ -127,7 +226,7 @@ export default function InstitutionsPage() {
         if (categoryDifference !== 0) return categoryDifference
         return (b.assessment.score ?? -1) - (a.assessment.score ?? -1)
       })
-  }, [evaluations])
+  }, [evaluations, institutions])
 
   const counts = useMemo(() => {
     return assessments.reduce(
@@ -152,6 +251,13 @@ export default function InstitutionsPage() {
       </header>
 
       <section className="institution-summary-bar">
+        {institutionsLoading && (
+          <p className="muted">Cargando instituciones...</p>
+        )}
+
+        {institutionsError && (
+          <p className="muted">{institutionsError}</p>
+        )}
         <div><strong>{institutions.length}</strong><span>Instituciones</span></div>
         <div><strong>{counts.alta}</strong><span>Criticidad alta</span></div>
         <div><strong>{counts.media}</strong><span>Criticidad media</span></div>
@@ -296,7 +402,7 @@ export default function InstitutionsPage() {
                     </div>
                     <div className="levels-list">
                       {institution.levels.map((level) => (
-                        <div key={`${level.level}-${level.empresa}`}><strong>{level.level}</strong><span>EMPRESA {level.empresa}</span></div>
+                        <div key={`${level.level}-${level.empresa}`}><strong>{level.level}</strong><span>EMPRESA {level.empresa || "No disponible"}</span></div>
                       ))}
                     </div>
                   </div>
@@ -309,9 +415,22 @@ export default function InstitutionsPage() {
                       <div className="evaluation-history">
                         {institutionEvaluations.map((evaluation) => (
                           <div className="evaluation-history-row" key={evaluation.id}>
-                            <div><strong>{formatDate(evaluation.date)}</strong><span>{evaluation.level || "Toda la institución"}</span></div>
+                            <div><strong>{formatDate(evaluation.date)}</strong>
+                              <span>
+                                {evaluation.institutionLevelId
+                                  ? institution.levels.find(
+                                      (level) =>
+                                        level.id === evaluation.institutionLevelId,
+                                    )?.level ?? "Nivel no encontrado"
+                                  : "Toda la institución"}
+                              </span></div>
                             <div><span>v{evaluation.version}</span><span className={`history-status ${evaluation.status}`}>{evaluation.status === "closed" ? "Cerrado" : "En curso"}</span></div>
-                            <Link className="secondary-button" href={`/relevamientos/nuevo?id=${encodeURIComponent(evaluation.id)}`}>{evaluation.status === "closed" ? "Consultar" : "Continuar"}</Link>
+                            <Link
+                              className="secondary-button"
+                              href={`/relevamientos/nuevo?evaluation=${encodeURIComponent(evaluation.id)}`}
+                            >
+                              {evaluation.status === "closed" ? "Consultar" : "Continuar"}
+                            </Link>
                           </div>
                         ))}
                       </div>

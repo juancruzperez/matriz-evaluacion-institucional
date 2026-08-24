@@ -19,12 +19,12 @@ export type InstitutionAssessment = {
 
 function latestByLevel(evaluations: Evaluation[]) {
   const sorted = [...evaluations].sort((a, b) => b.date.localeCompare(a.date) || b.version - a.version)
-  const general = sorted.find((item) => !item.level || item.level === "Toda la institución") ?? null
+  const general = sorted.find((item) => !item.institutionLevelId || item.institutionLevelId === "Toda la institución") ?? null
   const levels = new Map<string, Evaluation>()
 
   for (const evaluation of sorted) {
-    if (!evaluation.level || evaluation.level === "Toda la institución") continue
-    if (!levels.has(evaluation.level)) levels.set(evaluation.level, evaluation)
+    if (!evaluation.institutionLevelId || evaluation.institutionLevelId === "Toda la institución") continue
+    if (!levels.has(evaluation.institutionLevelId)) levels.set(evaluation.institutionLevelId, evaluation)
   }
 
   // A general evaluation is the fallback for levels without a specific current evaluation.

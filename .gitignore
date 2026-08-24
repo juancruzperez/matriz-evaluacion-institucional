@@ -45,3 +45,9 @@ next-env.d.ts
 
 # Local images - never commit
 /imagenes/
+.vercel
+
+# working tree
+project-tree.txt
+
+.env.local

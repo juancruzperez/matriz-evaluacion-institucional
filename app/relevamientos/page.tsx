@@ -118,7 +118,7 @@ export default function RelevamientosPage() {
                 <div className="saved-item" key={evaluation.id}>
                   <div>
                     <strong>{institution?.name ?? "Institución no encontrada"}</strong>
-                    <span>{evaluation.level ?? "Toda la institución"} · {formatDate(evaluation.date)} · versión {evaluation.version} · {closed ? "Finalizado" : "Abierto"}</span>
+                    <span>{evaluation.institutionLevelId ?? "Toda la institución"} · {formatDate(evaluation.date)} · versión {evaluation.version} · {closed ? "Finalizado" : "Abierto"}</span>
                   </div>
                   <Link className="text-link" href={`/relevamientos/nuevo?evaluation=${evaluation.id}`}>
                     {closed ? "Consultar →" : "Continuar →"}
