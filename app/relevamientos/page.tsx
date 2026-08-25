@@ -5,18 +5,11 @@ import { useEffect, useMemo, useState } from "react"
 import { institutions } from "@/data/institutions"
 import type { Evaluation } from "@/types/evaluation"
 
-const STORAGE_KEY = "mei:evaluations"
+
 
 type Filter = "all" | "draft" | "closed"
 
-function readEvaluations(): Evaluation[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]") as Evaluation[]
-    return parsed.map((evaluation) => ({ ...evaluation, status: evaluation.status ?? "draft" }))
-  } catch {
-    return []
-  }
-}
+
 
 function formatDate(date: string) {
   return new Date(`${date}T00:00:00`).toLocaleDateString("es-AR")
@@ -29,15 +22,57 @@ export default function RelevamientosPage() {
   const [query, setQuery] = useState("")
 
   useEffect(() => {
-    const refresh = () => setEvaluations(readEvaluations())
-    refresh()
-    window.addEventListener("focus", refresh)
-    window.addEventListener("storage", refresh)
-    return () => {
-      window.removeEventListener("focus", refresh)
-      window.removeEventListener("storage", refresh)
+  let cancelled = false
+
+  const loadEvaluations = async () => {
+    try {
+      const response = await fetch(
+        "/api/evaluations",
+        {
+          cache: "no-store",
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error(
+          "No se pudieron cargar los relevamientos.",
+        )
+      }
+
+      const data =
+        (await response.json()) as Evaluation[]
+
+      if (!cancelled) {
+        setEvaluations(data)
+      }
+    } catch (error) {
+      console.error(
+        "Error al cargar relevamientos",
+        error,
+      )
+
+      if (!cancelled) {
+        setEvaluations([])
+      }
     }
-  }, [])
+  }
+
+  loadEvaluations()
+
+  window.addEventListener(
+    "focus",
+    loadEvaluations,
+  )
+
+  return () => {
+    cancelled = true
+
+    window.removeEventListener(
+      "focus",
+      loadEvaluations,
+    )
+  }
+}, [])
 
   const filteredInstitutions = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("es")

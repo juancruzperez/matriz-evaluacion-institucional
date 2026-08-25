@@ -620,6 +620,82 @@ textarea {
   gap: 0;
 }
 
+.saved-groups {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.saved-group {
+  border: 1px solid #e7e7ee;
+  border-radius: 16px;
+  padding: 1rem;
+  background: #fff;
+}
+
+.saved-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.85rem;
+}
+
+.saved-group-heading > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.saved-group-heading strong {
+  font-family: var(--font-montserrat);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.saved-group-heading span {
+  color: #777;
+  font-size: 0.82rem;
+}
+
+.saved-group-empty {
+  margin: 0;
+  color: #777;
+  font-size: 0.9rem;
+  padding: 0.75rem 0;
+}
+
+.icon-button {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 38px;
+  border: 1px solid #e1e1e8;
+  border-radius: 10px;
+  color: #555;
+  background: #fff;
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.icon-button:hover {
+  background: #f6f6f9;
+  border-color: #cfcfd8;
+  color: #222;
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.icon-button svg {
+  width: 19px;
+  height: 19px;
+}
+
 .saved-item {
   display: flex;
   align-items: center;
