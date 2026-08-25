@@ -65,6 +65,12 @@ function NewEvaluationContent() {
   const [loadingEvaluation, setLoadingEvaluation] =
     useState(false)
 
+  const [isSaving, setIsSaving] =
+    useState(false)
+
+  const [isClosing, setIsClosing] =
+    useState(false)
+
   const [redirectingToOpenEvaluation, setRedirectingToOpenEvaluation] =
     useState(false)
 
@@ -505,7 +511,9 @@ const readOnly =
   }
 
   async function saveEvaluation() {
-    if (readOnly) return
+    if (readOnly || isSaving || isClosing) return
+
+    setIsSaving(true)
 
     try {
       const payload = {
@@ -607,11 +615,13 @@ const readOnly =
       alert(
         "No se pudo guardar el relevamiento. Verificá tu conexión e intentá nuevamente.",
       )
+    } finally {
+      setIsSaving(false)
     }
   }
 
   async function closeEvaluation() {
-    if (readOnly) return
+    if (readOnly || isSaving || isClosing) return
 
     if (completedIndicators === 0) {
       alert(
@@ -626,6 +636,8 @@ const readOnly =
     )
 
     if (!confirmed) return
+
+    setIsClosing(true)
 
     try {
       /*
@@ -757,6 +769,8 @@ const readOnly =
           ? error.message
           : "No se pudo cerrar el relevamiento.",
       )
+    } finally {
+      setIsClosing(false)
     }
   }
 
@@ -1196,16 +1210,22 @@ const readOnly =
           className="secondary-button"
           type="button"
           onClick={saveEvaluation}
+          disabled={isSaving || isClosing}
         >
-          Guardar relevamiento
+          {isSaving
+            ? "Guardando..."
+            : "Guardar relevamiento"}
         </button>
 
         <button
           className="primary-button"
           type="button"
           onClick={closeEvaluation}
+          disabled={isSaving || isClosing}
         >
-          Cerrar relevamiento
+          {isClosing
+            ? "Cerrando..."
+            : "Cerrar relevamiento"}
         </button>
       </div>
     )}
