@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { institutions } from "@/data/institutions"
+import type { Institution } from "@/types/institution"
 import type { Evaluation } from "@/types/evaluation"
 import { calculateInstitutionAssessment } from "@/lib/criticality"
 
@@ -28,6 +28,9 @@ export default function Dashboard() {
   const [evaluations, setEvaluations] =
     useState<Evaluation[]>([])
 
+  const [institutions, setInstitutions] =
+    useState<Institution[]>([])
+
   const [loadingEvaluations, setLoadingEvaluations] =
     useState(true)
 
@@ -36,27 +39,42 @@ export default function Dashboard() {
 
   async function loadEvaluations() {
     try {
-      const response = await fetch(
-        "/api/evaluations",
-        {
+      const [
+        evaluationsResponse,
+        institutionsResponse,
+      ] = await Promise.all([
+        fetch("/api/evaluations", {
           cache: "no-store",
-        },
-      )
+        }),
+        fetch("/api/institutions", {
+          cache: "no-store",
+        }),
+      ])
 
-      const data =
-        await response.json()
+      const evaluationsData =
+        await evaluationsResponse.json()
 
-      if (!response.ok) {
+      const institutionsData =
+        await institutionsResponse.json()
+
+      if (!evaluationsResponse.ok) {
         throw new Error(
-          data?.error ??
+          evaluationsData?.error ??
             "No se pudieron cargar los relevamientos.",
+        )
+      }
+
+      if (!institutionsResponse.ok) {
+        throw new Error(
+          institutionsData?.error ??
+            "No se pudieron cargar las instituciones.",
         )
       }
 
       if (cancelled) return
 
       setEvaluations(
-        (data as Evaluation[]).map(
+        (evaluationsData as Evaluation[]).map(
           (evaluation) => ({
             ...evaluation,
             status:
@@ -64,6 +82,10 @@ export default function Dashboard() {
               "draft",
           }),
         ),
+      )
+
+      setInstitutions(
+        institutionsData as Institution[],
       )
     } catch (error) {
       if (cancelled) return
@@ -127,7 +149,7 @@ export default function Dashboard() {
           evaluations,
         ),
     )
-  }, [evaluations])
+  }, [institutions, evaluations])
 
   /*
    * Total de instituciones que forman parte

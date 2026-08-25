@@ -4,6 +4,8 @@ export interface Institution {
   name: string
   address: string
   sector: string
+  latitude: number | null
+  longitude: number | null
   levels: InstitutionLevel[]
 }
 

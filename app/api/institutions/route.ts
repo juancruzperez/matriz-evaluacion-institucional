@@ -9,6 +9,8 @@ export async function GET() {
       i.name,
       i.address,
       i.sector,
+      i.latitude,
+      i.longitude,
       COALESCE(
         json_agg(
           json_build_object(
@@ -29,7 +31,9 @@ export async function GET() {
       i.cue,
       i.name,
       i.address,
-      i.sector
+      i.sector,
+      i.latitude,
+      i.longitude
     ORDER BY i.name
   `
 

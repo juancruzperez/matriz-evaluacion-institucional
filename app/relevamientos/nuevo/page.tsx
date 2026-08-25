@@ -10,7 +10,7 @@ import {
 } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useSession } from "next-auth/react"
-import { institutions } from "@/data/institutions"
+import type { Institution } from "@/types/institution"
 import { dimensions } from "@/lib/evaluation-template"
 import {
   createEvaluationResponse,
@@ -53,6 +53,9 @@ function NewEvaluationContent() {
       createEvaluation(),
     )
 
+  const [institutions, setInstitutions] =
+    useState<Institution[]>([])
+
   const [persisted, setPersisted] =
     useState(false)
 
@@ -67,6 +70,53 @@ function NewEvaluationContent() {
 
   const [loadError, setLoadError] =
     useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadInstitutions() {
+      try {
+        const response = await fetch(
+          "/api/institutions",
+          {
+            cache: "no-store",
+          },
+        )
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(
+            data?.error ??
+              "No se pudieron cargar las instituciones.",
+          )
+        }
+
+        if (cancelled) return
+
+        setInstitutions(
+          data as Institution[],
+        )
+      } catch (error) {
+        if (cancelled) return
+
+        console.error(
+          "Error al cargar instituciones",
+          error,
+        )
+
+        setLoadError(
+          "No se pudieron cargar las instituciones.",
+        )
+      }
+    }
+
+    void loadInstitutions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   /*
    * Carga de un relevamiento existente.
@@ -144,6 +194,10 @@ function NewEvaluationContent() {
 
     const institutionId =
       institutionParam
+
+    if (institutions.length === 0) {
+      return
+    }
 
     const institutionExists =
       institutions.some(
@@ -237,10 +291,10 @@ function NewEvaluationContent() {
     }
 
     void checkOpenEvaluation()
-  }, [searchParams, router])
+  }, [searchParams, router, institutions])
 
   async function handleInstitutionChange(
-  selected: (typeof institutions)[number] | null,
+  selected: Institution | null,
 ) {
   if (!selected || readOnly) {
     return

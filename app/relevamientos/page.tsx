@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { institutions } from "@/data/institutions"
+import type { Institution } from "@/types/institution"
 import type { Evaluation } from "@/types/evaluation"
 
 
@@ -17,68 +17,85 @@ function formatDate(date: string) {
 
 export default function RelevamientosPage() {
   const [evaluations, setEvaluations] = useState<Evaluation[]>([])
+  const [institutions, setInstitutions] = useState<Institution[]>([])
   const [status, setStatus] = useState<Filter>("all")
   const [institutionId, setInstitutionId] = useState("all")
   const [query, setQuery] = useState("")
 
   useEffect(() => {
-  let cancelled = false
+    let cancelled = false
 
-  const loadEvaluations = async () => {
-    try {
-      const response = await fetch(
-        "/api/evaluations",
-        {
-          cache: "no-store",
-        },
-      )
+    const loadData = async () => {
+      try {
+        const [
+          evaluationsResponse,
+          institutionsResponse,
+        ] = await Promise.all([
+          fetch("/api/evaluations", {
+            cache: "no-store",
+          }),
+          fetch("/api/institutions", {
+            cache: "no-store",
+          }),
+        ])
 
-      if (!response.ok) {
-        throw new Error(
-          "No se pudieron cargar los relevamientos.",
+        if (!evaluationsResponse.ok) {
+          throw new Error(
+            "No se pudieron cargar los relevamientos.",
+          )
+        }
+
+        if (!institutionsResponse.ok) {
+          throw new Error(
+            "No se pudieron cargar las instituciones.",
+          )
+        }
+
+        const evaluationsData =
+          (await evaluationsResponse.json()) as Evaluation[]
+
+        const institutionsData =
+          (await institutionsResponse.json()) as Institution[]
+
+        if (cancelled) return
+
+        setEvaluations(evaluationsData)
+        setInstitutions(institutionsData)
+      } catch (error) {
+        console.error(
+          "Error al cargar relevamientos e instituciones",
+          error,
         )
-      }
 
-      const data =
-        (await response.json()) as Evaluation[]
-
-      if (!cancelled) {
-        setEvaluations(data)
-      }
-    } catch (error) {
-      console.error(
-        "Error al cargar relevamientos",
-        error,
-      )
-
-      if (!cancelled) {
-        setEvaluations([])
+        if (!cancelled) {
+          setEvaluations([])
+          setInstitutions([])
+        }
       }
     }
-  }
 
-  loadEvaluations()
+    void loadData()
 
-  window.addEventListener(
-    "focus",
-    loadEvaluations,
-  )
-
-  return () => {
-    cancelled = true
-
-    window.removeEventListener(
+    window.addEventListener(
       "focus",
-      loadEvaluations,
+      loadData,
     )
-  }
-}, [])
+
+    return () => {
+      cancelled = true
+
+      window.removeEventListener(
+        "focus",
+        loadData,
+      )
+    }
+  }, [])
 
   const filteredInstitutions = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("es")
     if (!normalized) return institutions
     return institutions.filter((institution) => institution.name.toLocaleLowerCase("es").includes(normalized))
-  }, [query])
+  }, [institutions, query])
 
   const filteredEvaluations = useMemo(() => {
     return evaluations
