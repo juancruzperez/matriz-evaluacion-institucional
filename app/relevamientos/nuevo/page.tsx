@@ -102,6 +102,7 @@ function NewEvaluationContent() {
           startTransition(() => {
             setEvaluation(loaded)
             setPersisted(true)
+            setRedirectingToOpenEvaluation(false)
           })
         } catch (error) {
           console.error(
@@ -110,6 +111,7 @@ function NewEvaluationContent() {
           )
 
           startTransition(() => {
+            setRedirectingToOpenEvaluation(false)
             setLoadError(
               "No se pudo cargar el relevamiento.",
             )
@@ -234,6 +236,67 @@ function NewEvaluationContent() {
 
     void checkOpenEvaluation()
   }, [searchParams, router])
+
+  async function handleInstitutionChange(
+  selected: (typeof institutions)[number] | null,
+) {
+  if (!selected || readOnly) {
+    return
+  }
+
+  try {
+    setLoadingEvaluation(true)
+    setLoadError(null)
+
+    const response = await fetch("/api/evaluations")
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        data?.error ??
+          "No se pudieron consultar los relevamientos.",
+      )
+    }
+
+    const evaluations = data as Evaluation[]
+
+    const openEvaluation = evaluations.find(
+      (item) =>
+        item.institutionId === selected.id &&
+        item.status !== "closed",
+    )
+
+    if (openEvaluation) {
+      setRedirectingToOpenEvaluation(true)
+
+      router.replace(
+        `/relevamientos/nuevo?evaluation=${openEvaluation.id}`,
+      )
+
+      return
+    }
+
+    setEvaluation((current) => ({
+      ...current,
+      institutionId: selected.id,
+      institutionLevelId: null,
+    }))
+
+    setPersisted(false)
+  } catch (error) {
+    console.error(
+      "Error al verificar relevamiento abierto",
+      error,
+    )
+
+    setLoadError(
+      "No se pudo verificar si la institución tiene un relevamiento abierto.",
+    )
+  } finally {
+    setLoadingEvaluation(false)
+  }
+}
 
   const institution =
     institutions.find(
@@ -635,37 +698,10 @@ function NewEvaluationContent() {
 
   /*
    * Mientras verificamos si existe un relevamiento
-   * abierto, no mostramos el formulario para evitar
-   * que el usuario empiece a completar uno que luego
-   * será descartado.
+   * abierto, mantenemos la misma pantalla y mostramos
+   * un overlay de carga. Esto evita que el usuario
+   * perciba una navegación entre formularios.
    */
-  if (
-    loadingEvaluation ||
-    redirectingToOpenEvaluation
-  ) {
-    return (
-      <main className="shell narrow">
-        <section className="form-card">
-          <p className="eyebrow">
-            RELEVAMIENTO INSTITUCIONAL
-          </p>
-
-          <h1>
-            {redirectingToOpenEvaluation
-              ? "Relevamiento ya iniciado"
-              : "Verificando relevamiento"}
-          </h1>
-
-          <p className="muted">
-            {redirectingToOpenEvaluation
-              ? "La institución ya tiene un relevamiento abierto. Te estamos llevando al relevamiento existente."
-              : "Consultando los relevamientos existentes..."}
-          </p>
-        </section>
-      </main>
-    )
-  }
-
   if (loadError) {
     return (
       <main className="shell narrow">
@@ -707,6 +743,32 @@ function NewEvaluationContent() {
 
   return (
     <main className="shell narrow">
+      {(loadingEvaluation ||
+        redirectingToOpenEvaluation) && (
+        <div
+          className="evaluation-loading-overlay"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="evaluation-loading-message">
+            <span
+              className="evaluation-loading-spinner"
+              aria-hidden="true"
+            />
+
+            <div>
+              <strong>
+                Cargando relevamiento
+              </strong>
+
+              <span>
+                Recuperando el relevamiento existente...
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="form-topbar">
         <div>
           <Link
@@ -768,17 +830,9 @@ function NewEvaluationContent() {
           institutions={institutions}
           value={institution}
           disabled={readOnly}
-          onChange={(selected) =>
-            updateEvaluation(
-              (current) => ({
-                ...current,
-                institutionId:
-                  selected?.id ?? "",
-                institutionLevelId:
-                  null,
-              }),
-            )
-          }
+          onChange={(selected) => {
+            void handleInstitutionChange(selected)
+          }}
         />
 
         {institution && (
