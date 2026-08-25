@@ -23,6 +23,95 @@ import type { Evaluation } from "@/types/evaluation"
 import { InstitutionSearch } from "@/components/evaluation/InstitutionSearch"
 import { DimensionSection } from "@/components/evaluation/DimensionSection"
 
+const API_TIMEOUT_MS = 15000
+
+class ApiClientError extends Error {
+  kind: "timeout" | "network" | "non-json"
+
+  constructor(
+    kind: "timeout" | "network" | "non-json",
+    message: string,
+  ) {
+    super(message)
+    this.name = "ApiClientError"
+    this.kind = kind
+  }
+}
+
+async function requestJson<T>(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<{
+  response: Response
+  data: T
+}> {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    API_TIMEOUT_MS,
+  )
+
+  try {
+    const response = await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    })
+
+    const contentType =
+      response.headers.get("content-type") ?? ""
+
+    if (!contentType.includes("application/json")) {
+      throw new ApiClientError(
+        "non-json",
+        "El servidor devolvió una respuesta inesperada.",
+      )
+    }
+
+    const data = (await response.json()) as T
+
+    return {
+      response,
+      data,
+    }
+  } catch (error) {
+    if (
+      error instanceof ApiClientError
+    ) {
+      throw error
+    }
+
+    if (
+      error instanceof DOMException &&
+      error.name === "AbortError"
+    ) {
+      throw new ApiClientError(
+        "timeout",
+        "La operación está tardando demasiado.",
+      )
+    }
+
+    throw new ApiClientError(
+      "network",
+      "No se pudo conectar con el servidor.",
+    )
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
+function getApiErrorMessage(
+  error: unknown,
+  fallback: string,
+) {
+  if (
+    error instanceof ApiClientError
+  ) {
+    return error.message
+  }
+
+  return fallback
+}
+
 function createEvaluation(): Evaluation {
   const now = new Date().toISOString()
 
@@ -82,19 +171,17 @@ function NewEvaluationContent() {
 
     async function loadInstitutions() {
       try {
-        const response = await fetch(
-          "/api/institutions",
-          {
-            cache: "no-store",
-          },
-        )
-
-        const data = await response.json()
+        const { response, data } =
+          await requestJson<Institution[]>(
+            "/api/institutions",
+            {
+              cache: "no-store",
+            },
+          )
 
         if (!response.ok) {
           throw new Error(
-            data?.error ??
-              "No se pudieron cargar las instituciones.",
+            "No se pudieron cargar las instituciones.",
           )
         }
 
@@ -112,7 +199,10 @@ function NewEvaluationContent() {
         )
 
         setLoadError(
-          "No se pudieron cargar las instituciones.",
+          getApiErrorMessage(
+            error,
+            "No se pudieron cargar las instituciones.",
+          ),
         )
       }
     }
@@ -140,17 +230,14 @@ function NewEvaluationContent() {
           setLoadingEvaluation(true)
           setLoadError(null)
 
-          const response = await fetch(
-            `/api/evaluations/${evaluationId}`,
-          )
-
-          const data =
-            await response.json()
+          const { response, data } =
+            await requestJson<Evaluation>(
+              `/api/evaluations/${evaluationId}`,
+            )
 
           if (!response.ok) {
             throw new Error(
-              data?.error ??
-                `Unable to load evaluation: ${response.status}`,
+              "No se pudo cargar el relevamiento.",
             )
           }
 
@@ -171,7 +258,10 @@ function NewEvaluationContent() {
           startTransition(() => {
             setRedirectingToOpenEvaluation(false)
             setLoadError(
-              "No se pudo cargar el relevamiento.",
+              getApiErrorMessage(
+                error,
+                "No se pudo cargar el relevamiento.",
+              ),
             )
           })
         } finally {
@@ -225,17 +315,14 @@ function NewEvaluationContent() {
         setLoadingEvaluation(true)
         setLoadError(null)
 
-        const response = await fetch(
-          "/api/evaluations",
-        )
-
-        const data =
-          await response.json()
+        const { response, data } =
+          await requestJson<Evaluation[]>(
+            "/api/evaluations",
+          )
 
         if (!response.ok) {
           throw new Error(
-            data?.error ??
-              "No se pudieron consultar los relevamientos.",
+            "No se pudieron consultar los relevamientos.",
           )
         }
 
@@ -310,14 +397,14 @@ function NewEvaluationContent() {
     setLoadingEvaluation(true)
     setLoadError(null)
 
-    const response = await fetch("/api/evaluations")
-
-    const data = await response.json()
+    const { response, data } =
+      await requestJson<Evaluation[]>(
+        "/api/evaluations",
+      )
 
     if (!response.ok) {
       throw new Error(
-        data?.error ??
-          "No se pudieron consultar los relevamientos.",
+        "No se pudieron consultar los relevamientos.",
       )
     }
 
@@ -353,7 +440,10 @@ function NewEvaluationContent() {
     )
 
     setLoadError(
-      "No se pudo verificar si la institución tiene un relevamiento abierto.",
+      getApiErrorMessage(
+        error,
+        "No se pudo verificar si la institución tiene un relevamiento abierto.",
+      ),
     )
   } finally {
     setLoadingEvaluation(false)
@@ -551,26 +641,27 @@ const readOnly =
       }),
     ),
 }
-      const response = await fetch(
-        persisted
-          ? `/api/evaluations/${evaluation.id}`
-          : "/api/evaluations",
-        {
-          method: persisted
-            ? "PATCH"
-            : "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
+      const { response, data } =
+        await requestJson<Evaluation & {
+          evaluationId?: string
+          error?: string
+        }>(
+          persisted
+            ? `/api/evaluations/${evaluation.id}`
+            : "/api/evaluations",
+          {
+            method: persisted
+              ? "PATCH"
+              : "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify(
+              payload,
+            ),
           },
-          body: JSON.stringify(
-            payload,
-          ),
-        },
-      )
-
-      const data =
-        await response.json()
+        )
 
       /*
        * Segunda barrera:
@@ -613,7 +704,10 @@ const readOnly =
       )
 
       alert(
-        "No se pudo guardar el relevamiento. Verificá tu conexión e intentá nuevamente.",
+        getApiErrorMessage(
+          error,
+          "No se pudo guardar el relevamiento. Verificá tu conexión e intentá nuevamente.",
+        ),
       )
     } finally {
       setIsSaving(false)
@@ -686,8 +780,11 @@ const readOnly =
     ),
 }
         
-        const saveResponse =
-          await fetch(
+        const {
+          response: saveResponse,
+          data: saveData,
+        } =
+          await requestJson<Evaluation>(
             `/api/evaluations/${evaluation.id}`,
             {
               method: "PATCH",
@@ -701,13 +798,9 @@ const readOnly =
             },
           )
 
-        const saveData =
-          await saveResponse.json()
-
         if (!saveResponse.ok) {
           throw new Error(
-            saveData?.error ??
-              "No se pudieron guardar los cambios antes de cerrar.",
+            "No se pudieron guardar los cambios antes de cerrar.",
           )
         }
 
@@ -722,8 +815,11 @@ const readOnly =
       /*
        * Ahora cerramos realmente en Neon.
        */
-      const closeResponse =
-        await fetch(
+      const {
+        response: closeResponse,
+        data: closeData,
+      } =
+        await requestJson<Evaluation>(
           `/api/evaluations/${currentEvaluation.id}`,
           {
             method: "POST",
@@ -737,13 +833,9 @@ const readOnly =
           },
         )
 
-      const closeData =
-        await closeResponse.json()
-
       if (!closeResponse.ok) {
         throw new Error(
-          closeData?.error ??
-            "No se pudo cerrar el relevamiento.",
+          "No se pudo cerrar el relevamiento.",
         )
       }
 
@@ -765,9 +857,10 @@ const readOnly =
       )
 
       alert(
-        error instanceof Error
-          ? error.message
-          : "No se pudo cerrar el relevamiento.",
+        getApiErrorMessage(
+          error,
+          "No se pudo cerrar el relevamiento. Verificá tu conexión e intentá nuevamente.",
+        ),
       )
     } finally {
       setIsClosing(false)
