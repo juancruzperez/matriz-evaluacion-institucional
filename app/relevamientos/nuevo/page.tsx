@@ -9,6 +9,7 @@ import {
   useState,
 } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { useSession } from "next-auth/react"
 import { institutions } from "@/data/institutions"
 import { dimensions } from "@/lib/evaluation-template"
 import {
@@ -45,6 +46,7 @@ function createEvaluation(): Evaluation {
 function NewEvaluationContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { data: session } = useSession()
 
   const [evaluation, setEvaluation] =
     useState<Evaluation>(() =>
@@ -305,8 +307,16 @@ function NewEvaluationContent() {
         evaluation.institutionId,
     ) ?? null
 
-  const readOnly =
-    evaluation.status === "closed"
+  const isClosed =
+  evaluation.status === "closed"
+
+const isInstitutionalReadOnly =
+  session?.user?.roleId ===
+  "responsable_institucional"
+
+const readOnly =
+  isClosed ||
+  isInstitutionalReadOnly
 
   const hasResponseContent = (
     response: Evaluation["responses"][number],
@@ -1094,64 +1104,59 @@ function NewEvaluationContent() {
         />
       )}
 
-      <div className="save-bar">
-        {readOnly ? (
-          <div>
-            <strong>
-              Relevamiento cerrado
-            </strong>
+      {!isInstitutionalReadOnly && (
+  <div className="save-bar">
+    {isClosed ? (
+      <div>
+        <strong>
+          Relevamiento cerrado
+        </strong>
 
-            <span>
-              Versión{" "}
-              {evaluation.version} ·{" "}
-              {evaluation.closedAt
-                ? `cerrado el ${new Date(
-                    evaluation.closedAt,
-                  ).toLocaleString(
-                    "es-AR",
-                  )}`
-                : "solo consulta"}
-              .
-            </span>
-          </div>
-        ) : (
-          <div>
-            <strong>
-              Relevamiento en curso
-            </strong>
-
-            <span>
-              Podés guardar aunque no
-              hayas completado todas
-              las dimensiones.
-            </span>
-          </div>
-        )}
-
-        {!readOnly && (
-          <div className="save-actions">
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={
-                saveEvaluation
-              }
-            >
-              Guardar relevamiento
-            </button>
-
-            <button
-              className="primary-button"
-              type="button"
-              onClick={
-                closeEvaluation
-              }
-            >
-              Cerrar relevamiento
-            </button>
-          </div>
-        )}
+        <span>
+          Versión{" "}
+          {evaluation.version} ·{" "}
+          {evaluation.closedAt
+            ? `cerrado el ${new Date(
+                evaluation.closedAt,
+              ).toLocaleString("es-AR")}`
+            : "solo consulta"}
+          .
+        </span>
       </div>
+    ) : (
+      <div>
+        <strong>
+          Relevamiento en curso
+        </strong>
+
+        <span>
+          Podés guardar aunque no hayas completado todas
+          las dimensiones.
+        </span>
+      </div>
+    )}
+
+    {!readOnly && (
+      <div className="save-actions">
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={saveEvaluation}
+        >
+          Guardar relevamiento
+        </button>
+
+        <button
+          className="primary-button"
+          type="button"
+          onClick={closeEvaluation}
+        >
+          Cerrar relevamiento
+        </button>
+      </div>
+    )}
+  </div>
+)}
     </main>
   )
 }

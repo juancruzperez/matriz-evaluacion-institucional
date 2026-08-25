@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { Montserrat, Poppins } from "next/font/google"
 import { AppHeader } from "@/components/AppHeader"
+import { Providers } from "./providers"
 import "./globals.css"
 
 const montserrat = Montserrat({
@@ -20,12 +21,20 @@ export const metadata: Metadata = {
   description: "Relevamiento territorial · Circuito 3",
 }
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
   return (
     <html lang="es">
-      <body className={`${montserrat.variable} ${poppins.variable}`}>
-        <AppHeader />
-        {children}
+      <body
+        className={`${montserrat.variable} ${poppins.variable}`}
+      >
+        <Providers>
+          <AppHeader />
+          {children}
+        </Providers>
       </body>
     </html>
   )

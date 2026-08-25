@@ -1750,3 +1750,58 @@ textarea:disabled {
     height: 380px;
   }
 }
+
+.evaluation-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(255 255 255 / 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.evaluation-loading-message {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 420px;
+  padding: 18px 20px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.08);
+}
+
+.evaluation-loading-message strong,
+.evaluation-loading-message span {
+  display: block;
+}
+
+.evaluation-loading-message strong {
+  margin-bottom: 3px;
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.evaluation-loading-message span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.evaluation-loading-spinner {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 3px solid var(--line);
+  border-top-color: var(--button-dark);
+  border-radius: 50%;
+  animation: evaluation-loading-spin 0.8s linear infinite;
+}
+
+@keyframes evaluation-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
