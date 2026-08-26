@@ -35,8 +35,11 @@ export async function GET() {
         evaluations: evaluations[0]?.count ?? 0,
       },
     })
-  } catch (error) {
-    console.error("Auth diagnostic failed", error)
+    } catch (error) {
+    console.error("AUTH_DIAGNOSTIC_ERROR", {
+      name: error instanceof Error ? error.name : "UnknownError",
+      message: error instanceof Error ? error.message : "Unknown error",
+    })
 
     return Response.json(
       {
