@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   MapContainer,
   TileLayer,
@@ -10,8 +10,7 @@ import {
 } from "react-leaflet"
 import "leaflet/dist/leaflet.css"
 
-import { institutionCoordinates } from "@/data/institution-coordinates"
-import { institutions } from "@/data/institutions"
+import type { Institution } from "@/types/institution"
 import {
   calculateInstitutionAssessment,
   type Criticality,
@@ -63,7 +62,7 @@ function PopupSummary({
   assessment,
   evaluations,
 }: {
-  institution: (typeof institutions)[number]
+  institution: Institution
   assessment: ReturnType<typeof calculateInstitutionAssessment>
   evaluations: Evaluation[]
 }) {
@@ -117,14 +116,59 @@ export function TerritorialMap({
 }: {
   evaluations: Evaluation[]
 }) {
+  const [institutions, setInstitutions] = useState<Institution[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadInstitutions() {
+      try {
+        const response = await fetch("/api/institutions", {
+          cache: "no-store",
+        })
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(
+            data?.error ??
+              "No se pudieron cargar las instituciones.",
+          )
+        }
+
+        if (cancelled) return
+
+        setInstitutions(data as Institution[])
+      } catch (error) {
+        if (cancelled) return
+
+        console.error(
+          "Error al cargar instituciones para el mapa",
+          error,
+        )
+      }
+    }
+
+    void loadInstitutions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const assessments = useMemo(() => {
     return institutions
       .map((institution) => ({
         institution,
 
-        coordinate: institutionCoordinates.find(
-          (item) => item.cue === institution.cue,
-        ),
+        coordinate:
+          institution.latitude !== null &&
+          institution.longitude !== null
+            ? {
+                latitude: institution.latitude,
+                longitude: institution.longitude,
+              }
+            : null,
 
         assessment: calculateInstitutionAssessment(
           institution.id,
@@ -137,7 +181,7 @@ export function TerritorialMap({
         ),
       }))
       .filter((item) => item.coordinate)
-  }, [evaluations])
+  }, [institutions, evaluations])
 
   const points = assessments.map(
     ({ coordinate }) =>

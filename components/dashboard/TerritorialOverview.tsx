@@ -1,10 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo } from "react"
-import {
-  institutions,
-} from "@/data/institutions"
+import { useEffect, useMemo, useState } from "react"
+import type { Institution } from "@/types/institution"
 import {
   calculateInstitutionAssessment,
   type Criticality,
@@ -22,6 +20,52 @@ export function TerritorialOverview({
   evaluations,
   loading = false,
 }: TerritorialOverviewProps) {
+  const [institutions, setInstitutions] =
+    useState<Institution[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadInstitutions() {
+      try {
+        const response = await fetch(
+          "/api/institutions",
+          {
+            cache: "no-store",
+          },
+        )
+
+        if (!response.ok) {
+          throw new Error(
+            "No se pudieron cargar las instituciones.",
+          )
+        }
+
+        const data =
+          (await response.json()) as Institution[]
+
+        if (!cancelled) {
+          setInstitutions(data)
+        }
+      } catch (error) {
+        console.error(
+          "Error al cargar instituciones para el resumen territorial",
+          error,
+        )
+
+        if (!cancelled) {
+          setInstitutions([])
+        }
+      }
+    }
+
+    void loadInstitutions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const assessments = useMemo(
     () =>
       institutions.map(
@@ -31,7 +75,7 @@ export function TerritorialOverview({
             evaluations,
           ),
       ),
-    [evaluations],
+    [institutions, evaluations],
   )
 
   const counts = useMemo(

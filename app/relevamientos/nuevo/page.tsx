@@ -9,7 +9,8 @@ import {
   useState,
 } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { institutions } from "@/data/institutions"
+import { useSession } from "next-auth/react"
+import type { Institution } from "@/types/institution"
 import { dimensions } from "@/lib/evaluation-template"
 import {
   createEvaluationResponse,
@@ -21,6 +22,95 @@ import type { Evaluation } from "@/types/evaluation"
 
 import { InstitutionSearch } from "@/components/evaluation/InstitutionSearch"
 import { DimensionSection } from "@/components/evaluation/DimensionSection"
+
+const API_TIMEOUT_MS = 15000
+
+class ApiClientError extends Error {
+  kind: "timeout" | "network" | "non-json"
+
+  constructor(
+    kind: "timeout" | "network" | "non-json",
+    message: string,
+  ) {
+    super(message)
+    this.name = "ApiClientError"
+    this.kind = kind
+  }
+}
+
+async function requestJson<T>(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<{
+  response: Response
+  data: T
+}> {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    API_TIMEOUT_MS,
+  )
+
+  try {
+    const response = await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    })
+
+    const contentType =
+      response.headers.get("content-type") ?? ""
+
+    if (!contentType.includes("application/json")) {
+      throw new ApiClientError(
+        "non-json",
+        "El servidor devolvió una respuesta inesperada.",
+      )
+    }
+
+    const data = (await response.json()) as T
+
+    return {
+      response,
+      data,
+    }
+  } catch (error) {
+    if (
+      error instanceof ApiClientError
+    ) {
+      throw error
+    }
+
+    if (
+      error instanceof DOMException &&
+      error.name === "AbortError"
+    ) {
+      throw new ApiClientError(
+        "timeout",
+        "La operación está tardando demasiado.",
+      )
+    }
+
+    throw new ApiClientError(
+      "network",
+      "No se pudo conectar con el servidor.",
+    )
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
+function getApiErrorMessage(
+  error: unknown,
+  fallback: string,
+) {
+  if (
+    error instanceof ApiClientError
+  ) {
+    return error.message
+  }
+
+  return fallback
+}
 
 function createEvaluation(): Evaluation {
   const now = new Date().toISOString()
@@ -45,11 +135,15 @@ function createEvaluation(): Evaluation {
 function NewEvaluationContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { data: session } = useSession()
 
   const [evaluation, setEvaluation] =
     useState<Evaluation>(() =>
       createEvaluation(),
     )
+
+  const [institutions, setInstitutions] =
+    useState<Institution[]>([])
 
   const [persisted, setPersisted] =
     useState(false)
@@ -60,11 +154,65 @@ function NewEvaluationContent() {
   const [loadingEvaluation, setLoadingEvaluation] =
     useState(false)
 
+  const [isSaving, setIsSaving] =
+    useState(false)
+
+  const [isClosing, setIsClosing] =
+    useState(false)
+
   const [redirectingToOpenEvaluation, setRedirectingToOpenEvaluation] =
     useState(false)
 
   const [loadError, setLoadError] =
     useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadInstitutions() {
+      try {
+        const { response, data } =
+          await requestJson<Institution[]>(
+            "/api/institutions",
+            {
+              cache: "no-store",
+            },
+          )
+
+        if (!response.ok) {
+          throw new Error(
+            "No se pudieron cargar las instituciones.",
+          )
+        }
+
+        if (cancelled) return
+
+        setInstitutions(
+          data as Institution[],
+        )
+      } catch (error) {
+        if (cancelled) return
+
+        console.error(
+          "Error al cargar instituciones",
+          error,
+        )
+
+        setLoadError(
+          getApiErrorMessage(
+            error,
+            "No se pudieron cargar las instituciones.",
+          ),
+        )
+      }
+    }
+
+    void loadInstitutions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   /*
    * Carga de un relevamiento existente.
@@ -82,17 +230,14 @@ function NewEvaluationContent() {
           setLoadingEvaluation(true)
           setLoadError(null)
 
-          const response = await fetch(
-            `/api/evaluations/${evaluationId}`,
-          )
-
-          const data =
-            await response.json()
+          const { response, data } =
+            await requestJson<Evaluation>(
+              `/api/evaluations/${evaluationId}`,
+            )
 
           if (!response.ok) {
             throw new Error(
-              data?.error ??
-                `Unable to load evaluation: ${response.status}`,
+              "No se pudo cargar el relevamiento.",
             )
           }
 
@@ -102,6 +247,7 @@ function NewEvaluationContent() {
           startTransition(() => {
             setEvaluation(loaded)
             setPersisted(true)
+            setRedirectingToOpenEvaluation(false)
           })
         } catch (error) {
           console.error(
@@ -110,8 +256,12 @@ function NewEvaluationContent() {
           )
 
           startTransition(() => {
+            setRedirectingToOpenEvaluation(false)
             setLoadError(
-              "No se pudo cargar el relevamiento.",
+              getApiErrorMessage(
+                error,
+                "No se pudo cargar el relevamiento.",
+              ),
             )
           })
         } finally {
@@ -141,6 +291,10 @@ function NewEvaluationContent() {
     const institutionId =
       institutionParam
 
+    if (institutions.length === 0) {
+      return
+    }
+
     const institutionExists =
       institutions.some(
         (item) => item.id === institutionId,
@@ -161,17 +315,14 @@ function NewEvaluationContent() {
         setLoadingEvaluation(true)
         setLoadError(null)
 
-        const response = await fetch(
-          "/api/evaluations",
-        )
-
-        const data =
-          await response.json()
+        const { response, data } =
+          await requestJson<Evaluation[]>(
+            "/api/evaluations",
+          )
 
         if (!response.ok) {
           throw new Error(
-            data?.error ??
-              "No se pudieron consultar los relevamientos.",
+            "No se pudieron consultar los relevamientos.",
           )
         }
 
@@ -233,7 +384,71 @@ function NewEvaluationContent() {
     }
 
     void checkOpenEvaluation()
-  }, [searchParams, router])
+  }, [searchParams, router, institutions])
+
+  async function handleInstitutionChange(
+  selected: Institution | null,
+) {
+  if (!selected || readOnly) {
+    return
+  }
+
+  try {
+    setLoadingEvaluation(true)
+    setLoadError(null)
+
+    const { response, data } =
+      await requestJson<Evaluation[]>(
+        "/api/evaluations",
+      )
+
+    if (!response.ok) {
+      throw new Error(
+        "No se pudieron consultar los relevamientos.",
+      )
+    }
+
+    const evaluations = data as Evaluation[]
+
+    const openEvaluation = evaluations.find(
+      (item) =>
+        item.institutionId === selected.id &&
+        item.status !== "closed",
+    )
+
+    if (openEvaluation) {
+      setRedirectingToOpenEvaluation(true)
+
+      router.replace(
+        `/relevamientos/nuevo?evaluation=${openEvaluation.id}`,
+      )
+
+      return
+    }
+
+    setEvaluation((current) => ({
+      ...current,
+      institutionId: selected.id,
+      institutionLevelId: null,
+    }))
+
+    setPersisted(false)
+  } catch (error) {
+    console.error(
+      "Error al verificar relevamiento abierto",
+      error,
+    )
+
+    setLoadError(
+      getApiErrorMessage(
+        error,
+        "No se pudo verificar si la institución tiene un relevamiento abierto.",
+      ),
+    )
+  } finally {
+    setLoadingEvaluation(false)
+  }
+}
 
   const institution =
     institutions.find(
@@ -242,8 +457,16 @@ function NewEvaluationContent() {
         evaluation.institutionId,
     ) ?? null
 
-  const readOnly =
-    evaluation.status === "closed"
+  const isClosed =
+  evaluation.status === "closed"
+
+const isInstitutionalReadOnly =
+  session?.user?.roleId ===
+  "responsable_institucional"
+
+const readOnly =
+  isClosed ||
+  isInstitutionalReadOnly
 
   const hasResponseContent = (
     response: Evaluation["responses"][number],
@@ -378,54 +601,67 @@ function NewEvaluationContent() {
   }
 
   async function saveEvaluation() {
-    if (readOnly) return
+    if (readOnly || isSaving || isClosing) return
+
+    setIsSaving(true)
 
     try {
       const payload = {
-        institutionId:
-          evaluation.institutionId,
-        institutionLevelId:
-          evaluation.institutionLevelId,
-        date: evaluation.date,
-        managementTeamPresent:
-          evaluation.managementTeamPresent,
-        managementTeamContact:
-          evaluation.managementTeamContact,
-        responses:
-          evaluation.responses.map(
-            (item) => ({
-              indicatorId:
-                item.indicatorId,
-              observation:
-                item.observation,
+  institutionId:
+    evaluation.institutionId,
+  institutionLevelId:
+    evaluation.institutionLevelId,
+  date: evaluation.date,
+  managementTeamPresent:
+    evaluation.managementTeamPresent ?? null,
+  managementTeamContact:
+    evaluation.managementTeamContact,
+  responses:
+    evaluation.responses.map(
+      (item) => ({
+        indicatorId:
+          item.indicatorId,
+        observation:
+          item.observation ?? "",
+        ...(item.urgency
+          ? {
               urgency: item.urgency,
-              strengths:
-                item.strengths,
+            }
+          : {}),
+        ...(item.strengths
+          ? {
+              strengths: item.strengths,
+            }
+          : {}),
+        ...(item.fields
+          ? {
               fields: item.fields,
-            }),
-          ),
-      }
-
-      const response = await fetch(
-        persisted
-          ? `/api/evaluations/${evaluation.id}`
-          : "/api/evaluations",
-        {
-          method: persisted
-            ? "PATCH"
-            : "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
+            }
+          : {}),
+      }),
+    ),
+}
+      const { response, data } =
+        await requestJson<Evaluation & {
+          evaluationId?: string
+          error?: string
+        }>(
+          persisted
+            ? `/api/evaluations/${evaluation.id}`
+            : "/api/evaluations",
+          {
+            method: persisted
+              ? "PATCH"
+              : "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify(
+              payload,
+            ),
           },
-          body: JSON.stringify(
-            payload,
-          ),
-        },
-      )
-
-      const data =
-        await response.json()
+        )
 
       /*
        * Segunda barrera:
@@ -468,13 +704,18 @@ function NewEvaluationContent() {
       )
 
       alert(
-        "No se pudo guardar el relevamiento. Verificá tu conexión e intentá nuevamente.",
+        getApiErrorMessage(
+          error,
+          "No se pudo guardar el relevamiento. Verificá tu conexión e intentá nuevamente.",
+        ),
       )
+    } finally {
+      setIsSaving(false)
     }
   }
 
   async function closeEvaluation() {
-    if (readOnly) return
+    if (readOnly || isSaving || isClosing) return
 
     if (completedIndicators === 0) {
       alert(
@@ -490,6 +731,8 @@ function NewEvaluationContent() {
 
     if (!confirmed) return
 
+    setIsClosing(true)
+
     try {
       /*
        * Si hay cambios realizados desde el último guardado,
@@ -502,32 +745,46 @@ function NewEvaluationContent() {
 
       if (persisted) {
         const payload = {
-          institutionId:
-            evaluation.institutionId,
-          institutionLevelId:
-            evaluation.institutionLevelId,
-          date: evaluation.date,
-          managementTeamPresent:
-            evaluation.managementTeamPresent,
-          managementTeamContact:
-            evaluation.managementTeamContact,
-          responses:
-            evaluation.responses.map(
-              (item) => ({
-                indicatorId:
-                  item.indicatorId,
-                observation:
-                  item.observation,
-                urgency: item.urgency,
-                strengths:
-                  item.strengths,
-                fields: item.fields,
-              }),
-            ),
-        }
-
-        const saveResponse =
-          await fetch(
+  institutionId:
+    evaluation.institutionId,
+  institutionLevelId:
+    evaluation.institutionLevelId,
+  date: evaluation.date,
+  managementTeamPresent:
+    evaluation.managementTeamPresent ?? null,
+  managementTeamContact:
+    evaluation.managementTeamContact,
+  responses:
+    evaluation.responses.map(
+      (item) => ({
+        indicatorId:
+          item.indicatorId,
+        observation:
+          item.observation ?? "",
+        ...(item.urgency
+          ? {
+              urgency: item.urgency,
+            }
+          : {}),
+        ...(item.strengths
+          ? {
+              strengths: item.strengths,
+            }
+          : {}),
+        ...(item.fields
+          ? {
+              fields: item.fields,
+            }
+          : {}),
+      }),
+    ),
+}
+        
+        const {
+          response: saveResponse,
+          data: saveData,
+        } =
+          await requestJson<Evaluation>(
             `/api/evaluations/${evaluation.id}`,
             {
               method: "PATCH",
@@ -541,13 +798,9 @@ function NewEvaluationContent() {
             },
           )
 
-        const saveData =
-          await saveResponse.json()
-
         if (!saveResponse.ok) {
           throw new Error(
-            saveData?.error ??
-              "No se pudieron guardar los cambios antes de cerrar.",
+            "No se pudieron guardar los cambios antes de cerrar.",
           )
         }
 
@@ -562,8 +815,11 @@ function NewEvaluationContent() {
       /*
        * Ahora cerramos realmente en Neon.
        */
-      const closeResponse =
-        await fetch(
+      const {
+        response: closeResponse,
+        data: closeData,
+      } =
+        await requestJson<Evaluation>(
           `/api/evaluations/${currentEvaluation.id}`,
           {
             method: "POST",
@@ -577,13 +833,9 @@ function NewEvaluationContent() {
           },
         )
 
-      const closeData =
-        await closeResponse.json()
-
       if (!closeResponse.ok) {
         throw new Error(
-          closeData?.error ??
-            "No se pudo cerrar el relevamiento.",
+          "No se pudo cerrar el relevamiento.",
         )
       }
 
@@ -605,46 +857,22 @@ function NewEvaluationContent() {
       )
 
       alert(
-        error instanceof Error
-          ? error.message
-          : "No se pudo cerrar el relevamiento.",
+        getApiErrorMessage(
+          error,
+          "No se pudo cerrar el relevamiento. Verificá tu conexión e intentá nuevamente.",
+        ),
       )
+    } finally {
+      setIsClosing(false)
     }
   }
 
   /*
    * Mientras verificamos si existe un relevamiento
-   * abierto, no mostramos el formulario para evitar
-   * que el usuario empiece a completar uno que luego
-   * será descartado.
+   * abierto, mantenemos la misma pantalla y mostramos
+   * un overlay de carga. Esto evita que el usuario
+   * perciba una navegación entre formularios.
    */
-  if (
-    loadingEvaluation ||
-    redirectingToOpenEvaluation
-  ) {
-    return (
-      <main className="shell narrow">
-        <section className="form-card">
-          <p className="eyebrow">
-            RELEVAMIENTO INSTITUCIONAL
-          </p>
-
-          <h1>
-            {redirectingToOpenEvaluation
-              ? "Relevamiento ya iniciado"
-              : "Verificando relevamiento"}
-          </h1>
-
-          <p className="muted">
-            {redirectingToOpenEvaluation
-              ? "La institución ya tiene un relevamiento abierto. Te estamos llevando al relevamiento existente."
-              : "Consultando los relevamientos existentes..."}
-          </p>
-        </section>
-      </main>
-    )
-  }
-
   if (loadError) {
     return (
       <main className="shell narrow">
@@ -686,6 +914,32 @@ function NewEvaluationContent() {
 
   return (
     <main className="shell narrow">
+      {(loadingEvaluation ||
+        redirectingToOpenEvaluation) && (
+        <div
+          className="evaluation-loading-overlay"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="evaluation-loading-message">
+            <span
+              className="evaluation-loading-spinner"
+              aria-hidden="true"
+            />
+
+            <div>
+              <strong>
+                Cargando relevamiento
+              </strong>
+
+              <span>
+                Recuperando el relevamiento existente...
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="form-topbar">
         <div>
           <Link
@@ -747,17 +1001,9 @@ function NewEvaluationContent() {
           institutions={institutions}
           value={institution}
           disabled={readOnly}
-          onChange={(selected) =>
-            updateEvaluation(
-              (current) => ({
-                ...current,
-                institutionId:
-                  selected?.id ?? "",
-                institutionLevelId:
-                  null,
-              }),
-            )
-          }
+          onChange={(selected) => {
+            void handleInstitutionChange(selected)
+          }}
         />
 
         {institution && (
@@ -1019,64 +1265,65 @@ function NewEvaluationContent() {
         />
       )}
 
-      <div className="save-bar">
-        {readOnly ? (
-          <div>
-            <strong>
-              Relevamiento cerrado
-            </strong>
+      {!isInstitutionalReadOnly && (
+  <div className="save-bar">
+    {isClosed ? (
+      <div>
+        <strong>
+          Relevamiento cerrado
+        </strong>
 
-            <span>
-              Versión{" "}
-              {evaluation.version} ·{" "}
-              {evaluation.closedAt
-                ? `cerrado el ${new Date(
-                    evaluation.closedAt,
-                  ).toLocaleString(
-                    "es-AR",
-                  )}`
-                : "solo consulta"}
-              .
-            </span>
-          </div>
-        ) : (
-          <div>
-            <strong>
-              Relevamiento en curso
-            </strong>
-
-            <span>
-              Podés guardar aunque no
-              hayas completado todas
-              las dimensiones.
-            </span>
-          </div>
-        )}
-
-        {!readOnly && (
-          <div className="save-actions">
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={
-                saveEvaluation
-              }
-            >
-              Guardar relevamiento
-            </button>
-
-            <button
-              className="primary-button"
-              type="button"
-              onClick={
-                closeEvaluation
-              }
-            >
-              Cerrar relevamiento
-            </button>
-          </div>
-        )}
+        <span>
+          Versión{" "}
+          {evaluation.version} ·{" "}
+          {evaluation.closedAt
+            ? `cerrado el ${new Date(
+                evaluation.closedAt,
+              ).toLocaleString("es-AR")}`
+            : "solo consulta"}
+          .
+        </span>
       </div>
+    ) : (
+      <div>
+        <strong>
+          Relevamiento en curso
+        </strong>
+
+        <span>
+          Podés guardar aunque no hayas completado todas
+          las dimensiones.
+        </span>
+      </div>
+    )}
+
+    {!readOnly && (
+      <div className="save-actions">
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={saveEvaluation}
+          disabled={isSaving || isClosing}
+        >
+          {isSaving
+            ? "Guardando..."
+            : "Guardar relevamiento"}
+        </button>
+
+        <button
+          className="primary-button"
+          type="button"
+          onClick={closeEvaluation}
+          disabled={isSaving || isClosing}
+        >
+          {isClosing
+            ? "Cerrando..."
+            : "Cerrar relevamiento"}
+        </button>
+      </div>
+    )}
+  </div>
+)}
     </main>
   )
 }

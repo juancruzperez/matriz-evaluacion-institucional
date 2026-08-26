@@ -2,21 +2,14 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { institutions } from "@/data/institutions"
+import type { Institution } from "@/types/institution"
 import type { Evaluation } from "@/types/evaluation"
 
-const STORAGE_KEY = "mei:evaluations"
+
 
 type Filter = "all" | "draft" | "closed"
 
-function readEvaluations(): Evaluation[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]") as Evaluation[]
-    return parsed.map((evaluation) => ({ ...evaluation, status: evaluation.status ?? "draft" }))
-  } catch {
-    return []
-  }
-}
+
 
 function formatDate(date: string) {
   return new Date(`${date}T00:00:00`).toLocaleDateString("es-AR")
@@ -24,18 +17,77 @@ function formatDate(date: string) {
 
 export default function RelevamientosPage() {
   const [evaluations, setEvaluations] = useState<Evaluation[]>([])
+  const [institutions, setInstitutions] = useState<Institution[]>([])
   const [status, setStatus] = useState<Filter>("all")
   const [institutionId, setInstitutionId] = useState("all")
   const [query, setQuery] = useState("")
 
   useEffect(() => {
-    const refresh = () => setEvaluations(readEvaluations())
-    refresh()
-    window.addEventListener("focus", refresh)
-    window.addEventListener("storage", refresh)
+    let cancelled = false
+
+    const loadData = async () => {
+      try {
+        const [
+          evaluationsResponse,
+          institutionsResponse,
+        ] = await Promise.all([
+          fetch("/api/evaluations", {
+            cache: "no-store",
+          }),
+          fetch("/api/institutions", {
+            cache: "no-store",
+          }),
+        ])
+
+        if (!evaluationsResponse.ok) {
+          throw new Error(
+            "No se pudieron cargar los relevamientos.",
+          )
+        }
+
+        if (!institutionsResponse.ok) {
+          throw new Error(
+            "No se pudieron cargar las instituciones.",
+          )
+        }
+
+        const evaluationsData =
+          (await evaluationsResponse.json()) as Evaluation[]
+
+        const institutionsData =
+          (await institutionsResponse.json()) as Institution[]
+
+        if (cancelled) return
+
+        setEvaluations(evaluationsData)
+        setInstitutions(institutionsData)
+      } catch (error) {
+        console.error(
+          "Error al cargar relevamientos e instituciones",
+          error,
+        )
+
+        if (!cancelled) {
+          setEvaluations([])
+          setInstitutions([])
+        }
+      }
+    }
+
+    void loadData()
+
+    window.addEventListener(
+      "focus",
+      loadData,
+    )
+
     return () => {
-      window.removeEventListener("focus", refresh)
-      window.removeEventListener("storage", refresh)
+      cancelled = true
+
+      window.removeEventListener(
+        "focus",
+        loadData,
+      )
     }
   }, [])
 
@@ -43,7 +95,7 @@ export default function RelevamientosPage() {
     const normalized = query.trim().toLocaleLowerCase("es")
     if (!normalized) return institutions
     return institutions.filter((institution) => institution.name.toLocaleLowerCase("es").includes(normalized))
-  }, [query])
+  }, [institutions, query])
 
   const filteredEvaluations = useMemo(() => {
     return evaluations

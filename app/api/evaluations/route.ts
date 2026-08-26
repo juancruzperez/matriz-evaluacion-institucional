@@ -373,6 +373,49 @@ export async function POST(request: Request) {
       error,
     )
 
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "23503"
+    ) {
+      return Response.json(
+        {
+          error: "Invalid evaluation reference.",
+        },
+        { status: 400 },
+      )
+    }
+
+    if (
+  error &&
+  typeof error === "object" &&
+  "code" in error &&
+  error.code === "23505" &&
+  "constraint" in error &&
+  error.constraint ===
+    "evaluations_one_open_per_institution_idx"
+) {
+  const openRows = (await sql`
+    SELECT id
+    FROM evaluations
+    WHERE institution_id = ${body.institutionId}
+      AND status = 'draft'
+    ORDER BY created_at DESC
+    LIMIT 1
+  `) as { id: string }[]
+
+  return Response.json(
+    {
+      error:
+        "La institución ya tiene un relevamiento abierto.",
+      evaluationId:
+        openRows[0]?.id ?? null,
+    },
+    { status: 409 },
+  )
+}
+
     return Response.json(
       {
         error: "Unable to create evaluation",

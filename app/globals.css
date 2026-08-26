@@ -620,6 +620,82 @@ textarea {
   gap: 0;
 }
 
+.saved-groups {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.saved-group {
+  border: 1px solid #e7e7ee;
+  border-radius: 16px;
+  padding: 1rem;
+  background: #fff;
+}
+
+.saved-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.85rem;
+}
+
+.saved-group-heading > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.saved-group-heading strong {
+  font-family: var(--font-montserrat);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.saved-group-heading span {
+  color: #777;
+  font-size: 0.82rem;
+}
+
+.saved-group-empty {
+  margin: 0;
+  color: #777;
+  font-size: 0.9rem;
+  padding: 0.75rem 0;
+}
+
+.icon-button {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 38px;
+  border: 1px solid #e1e1e8;
+  border-radius: 10px;
+  color: #555;
+  background: #fff;
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.icon-button:hover {
+  background: #f6f6f9;
+  border-color: #cfcfd8;
+  color: #222;
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.icon-button svg {
+  width: 19px;
+  height: 19px;
+}
+
 .saved-item {
   display: flex;
   align-items: center;
@@ -670,7 +746,185 @@ textarea {
   font-size: 0.78rem;
   font-weight: 600;
 }
+/* Institution search and criticality filters */
 
+.institution-search-section {
+  margin-bottom: 18px;
+}
+
+.institution-search {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.institution-search-input-wrap {
+  position: relative;
+}
+
+.institution-search-input-wrap input {
+  padding-right: 46px;
+}
+
+.institution-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--button-dark);
+  font-size: 1.25rem;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.institution-search-clear:hover {
+  background: var(--dark-surface);
+}
+
+.institution-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.institution-filter-label {
+  color: var(--muted);
+  font-family: var(--font-montserrat), sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.institution-filter-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.institution-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 7px 12px;
+  border: 2px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.institution-filter-chip:hover {
+  transform: translateY(-1px);
+}
+
+.institution-filter-chip strong {
+  font-family: var(--font-montserrat), sans-serif;
+  font-size: 0.75rem;
+}
+
+.institution-filter-chip.is-active {
+  background: var(--button-dark);
+  color: var(--light-text);
+  border-color: var(--button-dark);
+}
+
+/* Alta */
+
+.institution-filter-chip.is-active:has(
+  .institution-filter-dot.alta
+) {
+  background: var(--high);
+  border-color: var(--high);
+  color: var(--light-text);
+}
+
+/* Media */
+
+.institution-filter-chip.is-active:has(
+  .institution-filter-dot.media
+) {
+  background: var(--medium);
+  border-color: var(--medium);
+  color: var(--ink);
+}
+
+/* Baja */
+
+.institution-filter-chip.is-active:has(
+  .institution-filter-dot.baja
+) {
+  background: var(--low);
+  border-color: var(--low);
+  color: var(--light-text);
+}
+
+/* Sin relevamiento */
+
+.institution-filter-chip.is-active:has(
+  .institution-filter-dot.sin-relevamiento
+) {
+  background: var(--pending);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.institution-filter-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.institution-filter-dot.alta {
+  background: var(--high);
+}
+
+.institution-filter-dot.media {
+  background: var(--medium);
+}
+
+.institution-filter-dot.baja {
+  background: var(--low);
+}
+
+.institution-filter-dot.sin-relevamiento {
+  background: var(--pending);
+  border: 1px solid var(--line);
+}
+
+.institution-search-results {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.institution-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.institution-empty-state p {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
 .institution-card-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1570,5 +1824,60 @@ textarea:disabled {
 
   .territorial-map {
     height: 380px;
+  }
+}
+
+.evaluation-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(255 255 255 / 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.evaluation-loading-message {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 420px;
+  padding: 18px 20px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.08);
+}
+
+.evaluation-loading-message strong,
+.evaluation-loading-message span {
+  display: block;
+}
+
+.evaluation-loading-message strong {
+  margin-bottom: 3px;
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.evaluation-loading-message span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.evaluation-loading-spinner {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 3px solid var(--line);
+  border-top-color: var(--button-dark);
+  border-radius: 50%;
+  animation: evaluation-loading-spin 0.8s linear infinite;
+}
+
+@keyframes evaluation-loading-spin {
+  to {
+    transform: rotate(360deg);
   }
 }

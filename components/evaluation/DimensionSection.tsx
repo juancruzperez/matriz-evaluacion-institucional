@@ -202,12 +202,14 @@ export function DimensionSection({
                             : ""
                         }`}
                         onClick={() =>
-                          onChange(
-                            indicator.id,
-                            "urgency",
-                            urgency,
-                          )
-                        }
+  onChange(
+    indicator.id,
+    "urgency",
+    response?.urgency === urgency
+      ? ""
+      : urgency,
+  )
+}
                       >
                         {urgency
                           .charAt(0)

@@ -154,6 +154,9 @@ export default function InstitutionsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [institutionsLoading, setInstitutionsLoading] = useState(true)
   const [institutionsError, setInstitutionsError] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [criticalityFilter, setCriticalityFilter] =
+    useState<Criticality | "todas">("todas")
 
   useEffect(() => {
   const loadData = async () => {
@@ -227,8 +230,41 @@ export default function InstitutionsPage() {
         return (b.assessment.score ?? -1) - (a.assessment.score ?? -1)
       })
   }, [evaluations, institutions])
+  
+  const normalizeSearchText = (value: string) =>
+  value
+    .toLocaleLowerCase("es-AR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
 
-  const counts = useMemo(() => {
+const filteredAssessments = useMemo(() => {
+  const query = normalizeSearchText(searchQuery.trim())
+
+  return assessments.filter(({ institution, assessment }) => {
+    const matchesSearch =
+      !query ||
+      normalizeSearchText(
+        [
+          institution.name,
+          institution.cue,
+          institution.address,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      ).includes(query)
+
+    const matchesCriticality =
+      criticalityFilter === "todas" ||
+      assessment.criticality === criticalityFilter
+
+    return matchesSearch && matchesCriticality
+  })
+}, [assessments, searchQuery, criticalityFilter])
+  
+const counts = useMemo(() => {
     return assessments.reduce(
       (acc, item) => {
         acc[item.assessment.criticality] += 1
@@ -237,6 +273,34 @@ export default function InstitutionsPage() {
       { alta: 0, media: 0, baja: 0, "sin-relevamiento": 0 } as Record<Criticality, number>,
     )
   }, [assessments])
+
+const criticalityFilters = [
+  {
+    value: "todas" as const,
+    label: "Todas",
+    count: assessments.length,
+  },
+  {
+    value: "alta" as const,
+    label: "Alta",
+    count: counts.alta,
+  },
+  {
+    value: "media" as const,
+    label: "Media",
+    count: counts.media,
+  },
+  {
+    value: "baja" as const,
+    label: "Baja",
+    count: counts.baja,
+  },
+  {
+    value: "sin-relevamiento" as const,
+    label: "Sin relevamiento",
+    count: counts["sin-relevamiento"],
+  },
+]
 
   return (
     <main className="shell">
@@ -264,9 +328,113 @@ export default function InstitutionsPage() {
         <div><strong>{counts.baja}</strong><span>Criticidad baja</span></div>
         <div><strong>{counts["sin-relevamiento"]}</strong><span>Sin relevamiento</span></div>
       </section>
+      <section
+  className="institution-search-section"
+  aria-label="Buscar y filtrar instituciones"
+>
+  <div className="institution-search">
+   
 
+    <div className="institution-search-input-wrap">
+      <input
+        id="institution-search"
+        type="search"
+        value={searchQuery}
+        onChange={(event) => setSearchQuery(event.target.value)}
+        placeholder="Nombre, CUE o domicilio..."
+        autoComplete="off"
+      />
+
+      {searchQuery && (
+        <button
+          type="button"
+          className="institution-search-clear"
+          onClick={() => setSearchQuery("")}
+          aria-label="Limpiar búsqueda"
+        >
+          ×
+        </button>
+      )}
+    </div>
+
+    <div className="institution-filter-group">
+      
+
+      <div
+          className="institution-filter-options"
+          role="group"
+          aria-label="Filtrar por criticidad"
+        >
+          {criticalityFilters.map((filter) => {
+            const isActive = criticalityFilter === filter.value
+
+            return (
+              <button
+                key={filter.value}
+                type="button"
+                className={`institution-filter-chip ${
+                  isActive ? "is-active" : ""
+                }`}
+                aria-pressed={isActive}
+                onClick={() => {
+                  setCriticalityFilter(
+                    criticalityFilter === filter.value
+                      ? "todas"
+                      : filter.value,
+                  )
+                }}
+              >
+                {filter.value !== "todas" && (
+                  <span
+                    className={`institution-filter-dot ${filter.value}`}
+                    aria-hidden="true"
+                  />
+                )}
+
+                <span>{filter.label}</span>
+                <strong>{filter.count}</strong>
+              </button>
+            )
+          })}
+        </div>
+    </div>
+
+    <p
+      className="institution-search-results"
+      aria-live="polite"
+    >
+      {searchQuery.trim() || criticalityFilter !== "todas"
+        ? `${filteredAssessments.length} ${
+            filteredAssessments.length === 1
+              ? "institución encontrada"
+              : "instituciones encontradas"
+          }`
+        : `${assessments.length} instituciones`}
+    </p>
+
+    {(searchQuery.trim() || criticalityFilter !== "todas") &&
+      filteredAssessments.length === 0 && (
+        <div className="institution-empty-state">
+          <p>
+            No encontramos instituciones con estos filtros.
+          </p>
+
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              setSearchQuery("")
+              setCriticalityFilter("todas")
+            }}
+          >
+            Limpiar filtros
+          </button>
+        </div>
+      )}
+  </div>
+</section>
       <section className="institution-card-grid" aria-label="Instituciones del Circuito 3">
-        {assessments.map(({ institution, assessment, institutionEvaluations }) => {
+        {filteredAssessments.map(({ institution, assessment, institutionEvaluations }) => {
           const isExpanded = expandedId === institution.id
           const lastEvaluation = institutionEvaluations[0]
 
