@@ -715,157 +715,195 @@ const readOnly =
   }
 
   async function closeEvaluation() {
-    if (readOnly || isSaving || isClosing) return
+  if (readOnly || isSaving || isClosing) return
 
-    if (completedIndicators === 0) {
-      alert(
-        "No se puede cerrar el relevamiento porque está completamente vacío.",
-      )
-
-      return
-    }
-
-    const confirmed = window.confirm(
-      "¿Cerrar este relevamiento? Una vez cerrado no podrá editarse y quedará disponible solo para consulta.",
+  if (completedIndicators === 0) {
+    alert(
+      "No se puede cerrar el relevamiento porque está completamente vacío.",
     )
 
-    if (!confirmed) return
+    return
+  }
 
-    setIsClosing(true)
+  const confirmed = window.confirm(
+    "¿Cerrar este relevamiento? Una vez cerrado no podrá editarse y quedará disponible solo para consulta.",
+  )
 
-    try {
-      /*
-       * Si hay cambios realizados desde el último guardado,
-       * primero los persistimos mediante PATCH.
-       *
-       * De esta manera nunca cerramos en Neon una versión
-       * anterior a lo que el usuario está viendo.
-       */
-      let currentEvaluation = evaluation
+  if (!confirmed) return
 
-      if (persisted) {
-        const payload = {
-  institutionId:
-    evaluation.institutionId,
-  institutionLevelId:
-    evaluation.institutionLevelId,
-  date: evaluation.date,
-  managementTeamPresent:
-    evaluation.managementTeamPresent ?? null,
-  managementTeamContact:
-    evaluation.managementTeamContact,
-  responses:
-    evaluation.responses.map(
-      (item) => ({
-        indicatorId:
-          item.indicatorId,
-        observation:
-          item.observation ?? "",
-        ...(item.urgency
-          ? {
-              urgency: item.urgency,
-            }
-          : {}),
-        ...(item.strengths
-          ? {
-              strengths: item.strengths,
-            }
-          : {}),
-        ...(item.fields
-          ? {
-              fields: item.fields,
-            }
-          : {}),
-      }),
-    ),
-}
-        
-        const {
-          response: saveResponse,
-          data: saveData,
-        } =
-          await requestJson<Evaluation>(
-            `/api/evaluations/${evaluation.id}`,
-            {
-              method: "PATCH",
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-              body: JSON.stringify(
-                payload,
-              ),
-            },
-          )
+  setIsClosing(true)
 
-        if (!saveResponse.ok) {
-          throw new Error(
-            "No se pudieron guardar los cambios antes de cerrar.",
-          )
-        }
+  try {
+    let currentEvaluation = evaluation
 
-        currentEvaluation =
-          saveData as Evaluation
+    const payload = {
+      institutionId: evaluation.institutionId,
+      institutionLevelId: evaluation.institutionLevelId,
+      date: evaluation.date,
+      managementTeamPresent:
+        evaluation.managementTeamPresent ?? null,
+      managementTeamContact:
+        evaluation.managementTeamContact,
+      responses: evaluation.responses.map(
+        (item) => ({
+          indicatorId: item.indicatorId,
+          observation: item.observation ?? "",
+          ...(item.urgency
+            ? {
+                urgency: item.urgency,
+              }
+            : {}),
+          ...(item.strengths
+            ? {
+                strengths: item.strengths,
+              }
+            : {}),
+          ...(item.fields
+            ? {
+                fields: item.fields,
+              }
+            : {}),
+        }),
+      ),
+    }
 
-        setEvaluation(
-          currentEvaluation,
-        )
-      }
-
-      /*
-       * Ahora cerramos realmente en Neon.
-       */
+    /*
+     * Si todavía no existe en Neon, primero creamos
+     * el relevamiento y obtenemos el ID real.
+     */
+    if (!persisted) {
       const {
-        response: closeResponse,
-        data: closeData,
+        response: createResponse,
+        data: createData,
       } =
-        await requestJson<Evaluation>(
-          `/api/evaluations/${currentEvaluation.id}`,
+        await requestJson<
+          Evaluation & {
+            evaluationId?: string
+            error?: string
+          }
+        >(
+          "/api/evaluations",
           {
             method: "POST",
             headers: {
-              "Content-Type":
-                "application/json",
+              "Content-Type": "application/json",
             },
-            body: JSON.stringify({
-              action: "close",
-            }),
+            body: JSON.stringify(payload),
           },
         )
 
-      if (!closeResponse.ok) {
+      /*
+       * Otra persona pudo haber creado un relevamiento
+       * para la misma institución entre la consulta
+       * inicial y este momento.
+       */
+      if (
+        createResponse.status === 409 &&
+        createData?.evaluationId
+      ) {
+        router.replace(
+          `/relevamientos/nuevo?evaluation=${createData.evaluationId}`,
+        )
+
+        return
+      }
+
+      if (!createResponse.ok) {
         throw new Error(
-          "No se pudo cerrar el relevamiento.",
+          createData?.error ??
+            "No se pudo crear el relevamiento antes de cerrarlo.",
         )
       }
 
-      const closedEvaluation =
-        closeData as Evaluation
+      currentEvaluation =
+        createData as Evaluation
 
-      setEvaluation(
-        closedEvaluation,
-      )
+      setEvaluation(currentEvaluation)
       setPersisted(true)
+    } else {
+      /*
+       * Si ya existe en Neon, primero guardamos
+       * los cambios actuales antes de cerrar.
+       */
+      const {
+        response: saveResponse,
+        data: saveData,
+      } =
+        await requestJson<Evaluation>(
+          `/api/evaluations/${evaluation.id}`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          },
+        )
 
-      alert(
-        `Relevamiento cerrado · versión ${closedEvaluation.version}`,
-      )
-    } catch (error) {
-      console.error(
-        "Error al cerrar el relevamiento",
-        error,
-      )
+      if (!saveResponse.ok) {
+        throw new Error(
+          "No se pudieron guardar los cambios antes de cerrar.",
+        )
+      }
 
-      alert(
-        getApiErrorMessage(
-          error,
-          "No se pudo cerrar el relevamiento. Verificá tu conexión e intentá nuevamente.",
-        ),
-      )
-    } finally {
-      setIsClosing(false)
+      currentEvaluation =
+        saveData as Evaluation
+
+      setEvaluation(currentEvaluation)
     }
+
+    /*
+     * Ahora cerramos usando exclusivamente el ID
+     * que sabemos que existe en Neon.
+     */
+    const {
+      response: closeResponse,
+      data: closeData,
+    } =
+      await requestJson<Evaluation>(
+        `/api/evaluations/${currentEvaluation.id}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "close",
+          }),
+        },
+      )
+
+    if (!closeResponse.ok) {
+      throw new Error(
+        "No se pudo cerrar el relevamiento.",
+      )
+    }
+
+    const closedEvaluation =
+      closeData as Evaluation
+
+    setEvaluation(closedEvaluation)
+    setPersisted(true)
+
+    alert(
+      `Relevamiento cerrado · versión ${closedEvaluation.version}`,
+    )
+  } catch (error) {
+    console.error(
+      "Error al cerrar el relevamiento",
+      error,
+    )
+
+    alert(
+      getApiErrorMessage(
+        error,
+        "No se pudo cerrar el relevamiento. Verificá tu conexión e intentá nuevamente.",
+      ),
+    )
+  } finally {
+    setIsClosing(false)
   }
+}
 
   /*
    * Mientras verificamos si existe un relevamiento

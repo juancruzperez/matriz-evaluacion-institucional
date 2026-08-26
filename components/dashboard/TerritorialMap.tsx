@@ -28,14 +28,35 @@ const COLORS: Record<Criticality, string> = {
  * Se calcula fuera del render para mantener el componente puro.
  * La diferencia en días no necesita precisión de horas.
  */
-const TODAY_MS = new Date().setHours(0, 0, 0, 0)
+function daysSince(date: string): number | null {
+  if (!date) return null
 
-function daysSince(date: string): number {
-  const dateMs = new Date(`${date}T00:00:00`).getTime()
+  const parsedDate = new Date(date)
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null
+  }
+
+  const now = new Date()
+
+  const today = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  )
+
+  const evaluationDate = new Date(
+    parsedDate.getFullYear(),
+    parsedDate.getMonth(),
+    parsedDate.getDate(),
+  )
 
   return Math.max(
     0,
-    Math.floor((TODAY_MS - dateMs) / 86400000),
+    Math.floor(
+      (today.getTime() - evaluationDate.getTime()) /
+        86400000,
+    ),
   )
 }
 
@@ -86,10 +107,24 @@ function PopupSummary({
 
       <p>
         {assessment.lastDate
-          ? `Último relevamiento: hace ${daysSince(
-              assessment.lastDate,
-            )} días`
-          : "Nunca relevada"}
+  ? (() => {
+      const days = daysSince(assessment.lastDate)
+
+      if (days === null) {
+        return "Último relevamiento: fecha no disponible"
+      }
+
+      if (days === 0) {
+        return "Último relevamiento: hoy"
+      }
+
+      if (days === 1) {
+        return "Último relevamiento: hace 1 día"
+      }
+
+      return `Último relevamiento: hace ${days} días`
+    })()
+  : "Nunca relevada"}
       </p>
 
       <p>
