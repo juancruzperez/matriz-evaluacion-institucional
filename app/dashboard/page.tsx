@@ -203,12 +203,11 @@ export default function Dashboard() {
           </p>
 
           <h1>
-            Matriz de Evaluación Institucional
+            Matriz de Inteligencia Territorial
           </h1>
 
           <p className="muted">
-            Relevamiento territorial para el
-            seguimiento institucional.
+            Situación actual
           </p>
         </div>
 

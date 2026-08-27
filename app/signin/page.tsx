@@ -15,41 +15,62 @@ export default async function SignInPage({
 
   return (
     <main className="signin-page">
-      <section className="signin-card">
-        <div className="signin-brand">
+      <div className="signin-container">
+        <div className="signin-institution-logo">
           <Image
-            src="/SIATE.svg"
-            alt="Sistema Integral de Acompañamiento Territorial Educativo"
-            width={150}
-            height={150}
+            src="/logo-subsecretaria.svg"
+            alt="Subsecretaría"
+            width={220}
+            height={80}
             priority
-            className="signin-logo"
+            className="signin-institution-logo-image"
           />
-
-          <p className="eyebrow">Relevamiento y Seguimiento</p>
-
-          <h1>Territorio en Acción</h1>
-
-          <p className="signin-description">
-            Sistema Integral de Acompañamiento Territorial Educativo
-          </p>
         </div>
 
-        {error && (
-          <div className="signin-error" role="alert">
-            <strong>No pudimos iniciar sesión.</strong>
+        <section className="signin-card">
+          <div className="signin-brand">
+            <Image
+              src="/SIATE.svg"
+              alt="Sistema Integral de Acompañamiento Territorial Educativo"
+              width={150}
+              height={150}
+              priority
+              className="signin-logo"
+            />
 
-            <p>
-              Verificá que estés utilizando una cuenta autorizada
-              e intentá nuevamente.
+            <p className="eyebrow">
+              Relevamiento y Seguimiento
+            </p>
+
+            <h1>Territorio en Acción</h1>
+
+            <p className="signin-description">
+              Sistema Integral de Acompañamiento Territorial
+              Educativo
             </p>
           </div>
-        )}
 
-        <div className="signin-actions">
-          <SignInButton />
-        </div>
-      </section>
+          {error && (
+            <div
+              className="signin-error"
+              role="alert"
+            >
+              <strong>
+                No pudimos iniciar sesión.
+              </strong>
+
+              <p>
+                Verificá que estés utilizando una cuenta
+                autorizada e intentá nuevamente.
+              </p>
+            </div>
+          )}
+
+          <div className="signin-actions">
+            <SignInButton />
+          </div>
+        </section>
+      </div>
     </main>
   )
 }

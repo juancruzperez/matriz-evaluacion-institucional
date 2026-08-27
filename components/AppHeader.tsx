@@ -31,7 +31,7 @@ export function AppHeader() {
       <div className="app-header-inner">
         <Link href="/" className="app-brand" onClick={() => setOpen(false)}>
           <span>
-            Sistema Integral de Acompañamiento Territorial Educativo
+            Subsecretaría de Articulación y Proyección Institucional
           </span>
         </Link>
 
