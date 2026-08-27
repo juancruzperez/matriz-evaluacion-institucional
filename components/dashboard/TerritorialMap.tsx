@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo } from "react"
 import {
   MapContainer,
   TileLayer,
@@ -107,24 +107,24 @@ function PopupSummary({
 
       <p>
         {assessment.lastDate
-  ? (() => {
-      const days = daysSince(assessment.lastDate)
+          ? (() => {
+              const days = daysSince(assessment.lastDate)
 
-      if (days === null) {
-        return "Último relevamiento: fecha no disponible"
-      }
+              if (days === null) {
+                return "Último relevamiento: fecha no disponible"
+              }
 
-      if (days === 0) {
-        return "Último relevamiento: hoy"
-      }
+              if (days === 0) {
+                return "Último relevamiento: hoy"
+              }
 
-      if (days === 1) {
-        return "Último relevamiento: hace 1 día"
-      }
+              if (days === 1) {
+                return "Último relevamiento: hace 1 día"
+              }
 
-      return `Último relevamiento: hace ${days} días`
-    })()
-  : "Nunca relevada"}
+              return `Último relevamiento: hace ${days} días`
+            })()
+          : "Nunca relevada"}
       </p>
 
       <p>
@@ -147,50 +147,12 @@ function PopupSummary({
 }
 
 export function TerritorialMap({
+  institutions,
   evaluations,
 }: {
+  institutions: Institution[]
   evaluations: Evaluation[]
 }) {
-  const [institutions, setInstitutions] = useState<Institution[]>([])
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadInstitutions() {
-      try {
-        const response = await fetch("/api/institutions", {
-          cache: "no-store",
-        })
-
-        const data = await response.json()
-
-        if (!response.ok) {
-          throw new Error(
-            data?.error ??
-              "No se pudieron cargar las instituciones.",
-          )
-        }
-
-        if (cancelled) return
-
-        setInstitutions(data as Institution[])
-      } catch (error) {
-        if (cancelled) return
-
-        console.error(
-          "Error al cargar instituciones para el mapa",
-          error,
-        )
-      }
-    }
-
-    void loadInstitutions()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
   const assessments = useMemo(() => {
     return institutions
       .map((institution) => ({
