@@ -23,73 +23,69 @@ export default function RelevamientosPage() {
   const [query, setQuery] = useState("")
 
   useEffect(() => {
-    let cancelled = false
+  const controller = new AbortController()
 
-    const loadData = async () => {
-      try {
-        const [
-          evaluationsResponse,
-          institutionsResponse,
-        ] = await Promise.all([
-          fetch("/api/evaluations", {
-            cache: "no-store",
-          }),
-          fetch("/api/institutions", {
-            cache: "no-store",
-          }),
-        ])
+  const loadData = async () => {
+    try {
+      const [
+        evaluationsResponse,
+        institutionsResponse,
+      ] = await Promise.all([
+        fetch("/api/evaluations", {
+          cache: "no-store",
+          signal: controller.signal,
+        }),
+        fetch("/api/institutions", {
+          cache: "no-store",
+          signal: controller.signal,
+        }),
+      ])
 
-        if (!evaluationsResponse.ok) {
-          throw new Error(
-            "No se pudieron cargar los relevamientos.",
-          )
-        }
-
-        if (!institutionsResponse.ok) {
-          throw new Error(
-            "No se pudieron cargar las instituciones.",
-          )
-        }
-
-        const evaluationsData =
-          (await evaluationsResponse.json()) as Evaluation[]
-
-        const institutionsData =
-          (await institutionsResponse.json()) as Institution[]
-
-        if (cancelled) return
-
-        setEvaluations(evaluationsData)
-        setInstitutions(institutionsData)
-      } catch (error) {
-        console.error(
-          "Error al cargar relevamientos e instituciones",
-          error,
+      if (!evaluationsResponse.ok) {
+        throw new Error(
+          "No se pudieron cargar los relevamientos.",
         )
-
-        if (!cancelled) {
-          setEvaluations([])
-          setInstitutions([])
-        }
       }
-    }
 
-    void loadData()
+      if (!institutionsResponse.ok) {
+        throw new Error(
+          "No se pudieron cargar las instituciones.",
+        )
+      }
 
-    window.addEventListener(
-      "focus",
-      loadData,
-    )
+      const evaluationsData =
+        (await evaluationsResponse.json()) as Evaluation[]
 
-    return () => {
-      cancelled = true
+      const institutionsData =
+        (await institutionsResponse.json()) as Institution[]
 
-      window.removeEventListener(
-        "focus",
-        loadData,
+      if (controller.signal.aborted) {
+        return
+      }
+
+      setEvaluations(evaluationsData)
+      setInstitutions(institutionsData)
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return
+      }
+
+      console.error(
+        "Error al cargar relevamientos e instituciones",
+        error,
       )
+
+      setEvaluations([])
+      setInstitutions([])
     }
-  }, [])
+  }
+
+  void loadData()
+
+  return () => {
+    controller.abort()
+  }
+}, [])
 
   const filteredInstitutions = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("es")

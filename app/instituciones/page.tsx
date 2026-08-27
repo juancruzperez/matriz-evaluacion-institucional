@@ -159,6 +159,8 @@ export default function InstitutionsPage() {
     useState<Criticality | "todas">("todas")
 
   useEffect(() => {
+  const controller = new AbortController()
+
   const loadData = async () => {
     try {
       setInstitutionsLoading(true)
@@ -168,8 +170,12 @@ export default function InstitutionsPage() {
         institutionsResponse,
         evaluationsResponse,
       ] = await Promise.all([
-        fetch("/api/institutions"),
-        fetch("/api/evaluations"),
+        fetch("/api/institutions", {
+          signal: controller.signal,
+        }),
+        fetch("/api/evaluations", {
+          signal: controller.signal,
+        }),
       ])
 
       if (!institutionsResponse.ok) {
@@ -192,6 +198,10 @@ export default function InstitutionsPage() {
         evaluationsResponse.json() as Promise<Evaluation[]>,
       ])
 
+      if (controller.signal.aborted) {
+        return
+      }
+
       setInstitutions(institutionsData)
 
       setEvaluations(
@@ -202,17 +212,27 @@ export default function InstitutionsPage() {
         })),
       )
     } catch (error) {
+      if (controller.signal.aborted) {
+        return
+      }
+
       console.error(error)
 
       setInstitutionsError(
         "No se pudieron cargar los datos institucionales.",
       )
     } finally {
-      setInstitutionsLoading(false)
+      if (!controller.signal.aborted) {
+        setInstitutionsLoading(false)
+      }
     }
   }
 
   loadData()
+
+  return () => {
+    controller.abort()
+  }
 }, [])
 
   const assessments = useMemo(() => {
