@@ -115,9 +115,7 @@ export function TerritorialOverview({
         />
 
         <p className="map-note">
-          Cada punto representa una
-          institución. El color corresponde a
-          su criticidad actual.
+          Cada polígono representa un departamento. El color resume la criticidad de las instituciones relevadas; al seleccionarlo se muestra el detalle territorial.
         </p>
       </section>
     </>
