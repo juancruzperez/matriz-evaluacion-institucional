@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import type { Layer } from "leaflet"
 import { GeoJSON as LeafletGeoJSON, MapContainer, TileLayer, useMap } from "react-leaflet"
 import "leaflet/dist/leaflet.css"
 
@@ -167,7 +168,7 @@ export function TerritorialMap({
     }
   }
 
-  const handleDepartment = (feature: DepartmentFeature, layer: any) => {
+  const handleDepartment = (feature: DepartmentFeature, layer: Layer) => {
     const name = getDepartmentName(feature)
     const stats = departmentStats.get(normalizeDepartmentName(name))
 
@@ -196,8 +197,10 @@ export function TerritorialMap({
         {departments && (
           <LeafletGeoJSON
             data={departments as never}
-            style={styleDepartment}
-            onEachFeature={handleDepartment}
+            style={(feature) => styleDepartment(feature as DepartmentFeature)}
+            onEachFeature={(feature, layer) =>
+              handleDepartment(feature as DepartmentFeature, layer)
+            }
           />
         )}
       </MapContainer>
