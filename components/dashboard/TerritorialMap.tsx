@@ -257,48 +257,64 @@ function getSectionColor(
 }
 
 /*
- * Vista provincial.
- */
-function FitProvince() {
-  const map = useMap()
-
-  useEffect(() => {
-    map.setView([-32.1, -64.2], 7.2)
-  }, [map])
-
-  return null
-}
-
-/*
- * Vista Capital.
+ * Ajusta el mapa para mostrar completamente el
+ * territorio seleccionado.
  *
- * Cuando se activa:
- * - cierra cualquier popup abierto;
- * - hace zoom a los 14 circuitos.
+ * No utiliza coordenadas fijas para departamentos
+ * o circuitos: siempre calcula los límites reales
+ * de la geometría seleccionada.
  */
-function FitCapital({
+function FitTerritory({
+  departments,
   sections,
-  active,
+  territoryFilter,
 }: {
+  departments: DepartmentGeoJSON | null
   sections: SectionGeoJSON | null
-  active: boolean
+  territoryFilter: string
 }) {
   const map = useMap()
 
   useEffect(() => {
-    if (!active) return
-
     map.closePopup()
 
-    if (
-      !sections ||
-      sections.features.length === 0
-    ) {
+    if (territoryFilter === "todos") {
+      map.setView([-32.1, -64.2], 7.2)
       return
     }
 
+    let feature: DepartmentFeature | SectionFeature | undefined
+
+    if (territoryFilter.startsWith("department:")) {
+      const selectedName = territoryFilter.slice(
+        "department:".length,
+      )
+
+      feature = departments?.features.find(
+        (item) =>
+          normalizeDepartmentName(
+            getDepartmentName(item),
+          ) ===
+          normalizeDepartmentName(selectedName),
+      )
+    }
+
+    if (territoryFilter.startsWith("circuit:")) {
+      const circuitNumber = Number(
+        territoryFilter.slice("circuit:".length),
+      )
+
+      feature = sections?.features.find(
+        (item) =>
+          item.properties?.NUMERO ===
+          circuitNumber,
+      )
+    }
+
+    if (!feature) return
+
     const bounds = leafletGeoJSON(
-      sections as never,
+      feature as never,
     ).getBounds()
 
     if (bounds.isValid()) {
@@ -306,27 +322,26 @@ function FitCapital({
         padding: [30, 30],
       })
     }
-  }, [map, sections, active])
+  }, [
+    map,
+    departments,
+    sections,
+    territoryFilter,
+  ])
 
   return null
 }
 
-/*
- * Control del mapa.
- *
- * Cierra cualquier popup cuando se cambia
- * entre la vista provincial y Capital.
- */
 function MapPopupController({
-  showCapitalSections,
+  territoryFilter,
 }: {
-  showCapitalSections: boolean
+  territoryFilter: string
 }) {
   const map = useMap()
 
   useEffect(() => {
     map.closePopup()
-  }, [map, showCapitalSections])
+  }, [map, territoryFilter])
 
   return null
 }
@@ -334,9 +349,13 @@ function MapPopupController({
 export function TerritorialMap({
   institutions,
   evaluations,
+  territoryFilter = "todos",
+  onTerritoryFilterChange,
 }: {
   institutions: Institution[]
   evaluations: Evaluation[]
+  territoryFilter?: string
+  onTerritoryFilterChange?: (value: string) => void
 }) {
   const [departments, setDepartments] =
     useState<DepartmentGeoJSON | null>(null)
@@ -360,11 +379,6 @@ export function TerritorialMap({
 
   const [geographyError, setGeographyError] =
     useState(false)
-
-  const [
-    showCapitalSections,
-    setShowCapitalSections,
-  ] = useState(false)
 
   /*
    * Cargar departamentos desde IDECOR.
@@ -696,11 +710,19 @@ export function TerritorialMap({
 
       layer.on("click", () => {
         layer.closePopup()
-        setShowCapitalSections(true)
+        onTerritoryFilterChange?.(
+          "department:Capital",
+        )
       })
 
       return
     }
+
+    layer.on("click", () => {
+      onTerritoryFilterChange?.(
+        `department:${name}`,
+      )
+    })
 
     layer.bindPopup(
       stats
@@ -767,6 +789,14 @@ export function TerritorialMap({
         )
       : undefined
 
+    layer.on("click", () => {
+      if (typeof sectionNumber === "number") {
+        onTerritoryFilterChange?.(
+          `circuit:${sectionNumber}`,
+        )
+      }
+    })
+
     layer.bindPopup(
       stats
         ? `
@@ -803,28 +833,50 @@ export function TerritorialMap({
         />
 
         <MapPopupController
-          showCapitalSections={
-            showCapitalSections
-          }
+          territoryFilter={territoryFilter}
         />
 
-        {!showCapitalSections && (
-          <FitProvince />
-        )}
-
-        <FitCapital
+        <FitTerritory
+          departments={departments}
           sections={sections}
-          active={showCapitalSections}
+          territoryFilter={territoryFilter}
         />
 
         {/*
          * Vista provincial:
-         * solamente departamentos.
+         * - toda la provincia: 26 departamentos;
+         * - departamento seleccionado: solamente
+         *   el polígono completo seleccionado.
          */}
         {departments &&
-          !showCapitalSections && (
+          !territoryFilter.startsWith("circuit:") &&
+          !(
+            territoryFilter === "department:Capital"
+          ) && (
             <LeafletGeoJSON
-              data={departments as never}
+              key={`department-${territoryFilter}`}
+              data={
+                territoryFilter === "todos"
+                  ? (departments as never)
+                  : ({
+                      type: "FeatureCollection",
+                      features:
+                        departments.features.filter(
+                          (feature) =>
+                            normalizeDepartmentName(
+                              getDepartmentName(
+                                feature,
+                              ),
+                            ) ===
+                            normalizeDepartmentName(
+                              territoryFilter.replace(
+                                "department:",
+                                "",
+                              ),
+                            ),
+                        ),
+                    } as never)
+              }
               style={(feature) =>
                 styleDepartment(
                   feature as DepartmentFeature,
@@ -843,14 +895,39 @@ export function TerritorialMap({
           )}
 
         {/*
-         * Vista Capital:
-         * solamente los 14 circuitos.
+         * Capital:
+         * - department:Capital muestra los 14 circuitos;
+         * - circuit:N muestra solamente el polígono
+         *   completo del circuito seleccionado.
          */}
-        {showCapitalSections &&
-          displaySections && (
+        {sections &&
+          (territoryFilter ===
+            "department:Capital" ||
+            territoryFilter.startsWith(
+              "circuit:",
+            )) && (
             <>
               <LeafletGeoJSON
-                data={displaySections as never}
+                key={`capital-${territoryFilter}`}
+                data={
+                  territoryFilter ===
+                  "department:Capital"
+                    ? (displaySections as never)
+                    : ({
+                        type: "FeatureCollection",
+                        features:
+                          displaySections?.features.filter(
+                            (feature) =>
+                              feature.properties
+                                ?.NUMERO ===
+                              Number(
+                                territoryFilter.slice(
+                                  "circuit:".length,
+                                ),
+                              ),
+                          ) ?? [],
+                      } as never)
+                }
                 style={(feature) =>
                   styleSection(
                     feature as SectionFeature,
@@ -869,70 +946,98 @@ export function TerritorialMap({
 
               {/*
                * Etiquetas de los circuitos.
-               *
-               * Se utilizan Marker + divIcon para colocar
-               * el número ordinal dentro de cada polígono.
-               *
-               * pointOnFeature garantiza una posición
-               * dentro de la geometría visible.
+               * En una selección individual solamente
+               * se etiqueta el circuito seleccionado.
                */}
-              {displaySections.features.map(
-                (feature) => {
-                  const number =
-                    feature.properties?.NUMERO
+              {displaySections &&
+                displaySections.features
+                  .filter((feature) => {
+                    if (
+                      territoryFilter ===
+                      "department:Capital"
+                    ) {
+                      return true
+                    }
 
-                  if (
-                    typeof number !== "number"
-                  ) {
-                    return null
-                  }
-
-                  const position =
-                    getSectionLabelPosition(
-                      feature,
+                    return (
+                      feature.properties?.NUMERO ===
+                      Number(
+                        territoryFilter.slice(
+                          "circuit:".length,
+                        ),
+                      )
                     )
+                  })
+                  .map((feature) => {
+                    const number =
+                      feature.properties?.NUMERO
 
-                  return (
-                    <Marker
-                      key={`circuit-label-${number}`}
-                      position={position}
-                      interactive={false}
-                      icon={divIcon({
-                        className:
-                          "territorial-section-label",
-                        html: `
-                          <span>
-                            ${getOrdinalSectionLabel(
-                              number,
-                            )}
-                          </span>
-                        `,
-                        iconSize: [30, 24],
-                        iconAnchor: [15, 12],
-                      })}
-                    />
-                  )
-                },
-              )}
+                    if (
+                      typeof number !== "number"
+                    ) {
+                      return null
+                    }
+
+                    const position =
+                      getSectionLabelPosition(
+                        feature,
+                      )
+
+                    return (
+                      <Marker
+                        key={`circuit-label-${number}`}
+                        position={position}
+                        interactive={false}
+                        icon={divIcon({
+                          className:
+                            "territorial-section-label",
+                          html: `
+                            <span>
+                              ${getOrdinalSectionLabel(
+                                number,
+                              )}
+                            </span>
+                          `,
+                          iconSize: [30, 24],
+                          iconAnchor: [15, 12],
+                        })}
+                      />
+                    )
+                  })}
             </>
           )}
+
       </MapContainer>
 
       {/*
-       * Navegación del segundo nivel.
-       *
-       * Se coloca a la derecha para no interferir
-       * con los controles + / - de Leaflet.
+       * Navegación cuando se está dentro de Capital
+       * o de un circuito individual.
        */}
-      {showCapitalSections && (
+      {(territoryFilter === "department:Capital" ||
+        territoryFilter.startsWith(
+          "circuit:",
+        )) && (
         <button
           type="button"
           className="territorial-map-back"
           onClick={() => {
-            setShowCapitalSections(false)
+            if (
+              territoryFilter.startsWith(
+                "circuit:",
+              )
+            ) {
+              onTerritoryFilterChange?.(
+                "department:Capital",
+              )
+              return
+            }
+
+            onTerritoryFilterChange?.("todos")
           }}
         >
-          ← Volver a departamentos
+          {territoryFilter.startsWith("circuit:")
+            ? "← Volver a circuitos"
+            : "← Volver a departamentos"}
         </button>
       )}
 
@@ -950,7 +1055,11 @@ export function TerritorialMap({
         </p>
       )}
 
-      {showCapitalSections &&
+      {(territoryFilter ===
+        "department:Capital" ||
+        territoryFilter.startsWith(
+          "circuit:",
+        )) &&
         !sections && (
           <p className="map-note">
             Cargando circuitos de Capital...

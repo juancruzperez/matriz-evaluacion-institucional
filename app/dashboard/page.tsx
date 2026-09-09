@@ -199,7 +199,7 @@ export default function Dashboard() {
       <header className="topbar">
         <div>
           <p className="eyebrow">
-            CIRCUITO 3
+            zona de accion
           </p>
 
           <h1>
@@ -243,7 +243,7 @@ export default function Dashboard() {
 
           <small>
             Instituciones que integran el
-            Circuito 3.
+            zona de accion.
           </small>
         </div>
 

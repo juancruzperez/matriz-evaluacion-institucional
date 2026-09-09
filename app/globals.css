@@ -752,6 +752,28 @@ textarea {
   margin-bottom: 18px;
 }
 
+.dashboard-territory-filter {
+  margin-bottom: 24px;
+  padding: 16px 18px;
+  background: var(--light-bg);
+  border: 2px solid var(--line);
+  border-radius: 12px;
+}
+
+.dashboard-territory-filter .institution-filter-field {
+  max-width: 460px;
+}
+
+.dashboard-territory-filter .institution-filter-field > span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-family: var(--font-montserrat), sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+
 .institution-search {
   display: flex;
   flex-direction: column;

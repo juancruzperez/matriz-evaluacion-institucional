@@ -529,12 +529,12 @@ export default function InstitutionsPage() {
             ← Dashboard
           </Link>
 
-          <p className="eyebrow">CIRCUITO 3</p>
+          <p className="eyebrow">zona de accion</p>
 
           <h1>Instituciones</h1>
 
           <p className="muted">
-            Instituciones del circuito ordenadas por criticidad.
+            Instituciones del territorio ordenadas por criticidad.
           </p>
         </div>
 

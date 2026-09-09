@@ -988,7 +988,7 @@ const readOnly =
           </Link>
 
           <p className="eyebrow">
-            CIRCUITO 3 ·{" "}
+            zona de accion ·{" "}
             {readOnly
               ? "CONSULTA"
               : "RELEVAMIENTO"}
