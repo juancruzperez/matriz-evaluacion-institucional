@@ -19,8 +19,7 @@ const criticalityOrder: Record<Criticality, number> = {
   "sin-relevamiento": 3,
 }
 
-const urgencyWeight: Record<Urgency, number> =
-  URGENCY_WEIGHT
+const urgencyWeight: Record<Urgency, number> = URGENCY_WEIGHT
 
 function criticalityLabel(value: Criticality) {
   if (value === "sin-relevamiento") {
@@ -32,9 +31,7 @@ function criticalityLabel(value: Criticality) {
 
 function parseDate(date: string) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    const [year, month, day] = date
-      .split("-")
-      .map(Number)
+    const [year, month, day] = date.split("-").map(Number)
 
     return new Date(year, month - 1, day)
   }
@@ -66,8 +63,7 @@ function daysSince(date: string | null) {
   )
 
   const diff = Math.floor(
-    (startOfToday.getTime() - lastDay.getTime()) /
-      86400000,
+    (startOfToday.getTime() - lastDay.getTime()) / 86400000,
   )
 
   return Math.max(0, diff)
@@ -93,9 +89,7 @@ function urgencyLabel(value?: Urgency) {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-function criticalityFromScore(
-  score: number | null,
-): Criticality {
+function criticalityFromScore(score: number | null): Criticality {
   if (score === null) {
     return "sin-relevamiento"
   }
@@ -111,41 +105,93 @@ function criticalityFromScore(
   return "baja"
 }
 
-function dimensionAssessment(evaluation: Evaluation, dimensionId: string) {
+function dimensionAssessment(
+  evaluation: Evaluation,
+  dimensionId: string,
+) {
   const dimension = dimensions.find((item) => item.id === dimensionId)
+
   if (!dimension) return null
 
   const values = dimension.indicators
-    .map((indicator) => getEvaluationResponse(evaluation.responses, indicator.id)?.urgency)
+    .map(
+      (indicator) =>
+        getEvaluationResponse(
+          evaluation.responses,
+          indicator.id,
+        )?.urgency,
+    )
     .filter((urgency): urgency is Urgency => Boolean(urgency))
     .map((urgency) => urgencyWeight[urgency])
 
-  const score = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+  const score = values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : null
+
   return {
     score,
     criticality: criticalityFromScore(score),
   }
 }
 
-function dimensionEntries(evaluation: Evaluation, dimensionId: string) {
+function dimensionEntries(
+  evaluation: Evaluation,
+  dimensionId: string,
+) {
   const dimension = dimensions.find((item) => item.id === dimensionId)
+
   if (!dimension) return []
 
   return dimension.indicators.flatMap((indicator) => {
-    const response = getEvaluationResponse(evaluation.responses, indicator.id)
+    const response = getEvaluationResponse(
+      evaluation.responses,
+      indicator.id,
+    )
+
     if (!response) return []
+
     const fields = Object.entries(response.fields ?? {})
-      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
+      .map(
+        ([key, value]) =>
+          `${key}: ${Array.isArray(value) ? value.join(", ") : value}`,
+      )
       .filter((value) => !value.endsWith(": "))
 
     const entries: string[] = []
-    if (response.observation.trim()) entries.push(response.observation.trim())
-    if (response.strengths?.trim()) entries.push(`Fortaleza: ${response.strengths.trim()}`)
-    if (fields.length) entries.push(fields.join(" · "))
-    if (response.urgency) entries.push(`Urgencia: ${urgencyLabel(response.urgency)}`)
 
-    return entries.length ? [{ indicator: indicator.title, entries }] : []
+    if (response.observation.trim()) {
+      entries.push(response.observation.trim())
+    }
+
+    if (response.strengths?.trim()) {
+      entries.push(`Fortaleza: ${response.strengths.trim()}`)
+    }
+
+    if (fields.length) {
+      entries.push(fields.join(" · "))
+    }
+
+    if (response.urgency) {
+      entries.push(`Urgencia: ${urgencyLabel(response.urgency)}`)
+    }
+
+    return entries.length
+      ? [{ indicator: indicator.title, entries }]
+      : []
   })
+}
+
+function googleMapsUrl(
+  latitude: number | null,
+  longitude: number | null,
+) {
+  if (latitude === null || longitude === null) {
+    return null
+  }
+
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+    `${latitude},${longitude}`,
+  )}`
 }
 
 export default function InstitutionsPage() {
@@ -153,482 +199,1284 @@ export default function InstitutionsPage() {
   const [evaluations, setEvaluations] = useState<Evaluation[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [institutionsLoading, setInstitutionsLoading] = useState(true)
-  const [institutionsError, setInstitutionsError] = useState<string | null>(null)
+  const [institutionsError, setInstitutionsError] =
+    useState<string | null>(null)
+
   const [searchQuery, setSearchQuery] = useState("")
+
+  const [sectorFilter, setSectorFilter] = useState("todas")
+  const [departamentoFilter, setDepartamentoFilter] = useState("todos")
+  const [localidadFilter, setLocalidadFilter] = useState("todas")
+  const [ambitoFilter, setAmbitoFilter] = useState("todos")
+
   const [criticalityFilter, setCriticalityFilter] =
     useState<Criticality | "todas">("todas")
 
   useEffect(() => {
-  const controller = new AbortController()
+    const controller = new AbortController()
 
-  const loadData = async () => {
-    try {
-      setInstitutionsLoading(true)
-      setInstitutionsError(null)
+    const loadData = async () => {
+      try {
+        setInstitutionsLoading(true)
+        setInstitutionsError(null)
 
-      const [
-        institutionsResponse,
-        evaluationsResponse,
-      ] = await Promise.all([
-        fetch("/api/institutions", {
-          signal: controller.signal,
-        }),
-        fetch("/api/evaluations", {
-          signal: controller.signal,
-        }),
-      ])
+        const [
+          institutionsResponse,
+          evaluationsResponse,
+        ] = await Promise.all([
+          fetch("/api/institutions", {
+            signal: controller.signal,
+          }),
+          fetch("/api/evaluations", {
+            signal: controller.signal,
+          }),
+        ])
 
-      if (!institutionsResponse.ok) {
-        throw new Error(
-          "No se pudieron cargar las instituciones",
+        if (!institutionsResponse.ok) {
+          throw new Error(
+            "No se pudieron cargar las instituciones",
+          )
+        }
+
+        if (!evaluationsResponse.ok) {
+          throw new Error(
+            "No se pudieron cargar los relevamientos",
+          )
+        }
+
+        const [
+          institutionsData,
+          evaluationsData,
+        ] = await Promise.all([
+          institutionsResponse.json() as Promise<Institution[]>,
+          evaluationsResponse.json() as Promise<Evaluation[]>,
+        ])
+
+        if (controller.signal.aborted) {
+          return
+        }
+
+        setInstitutions(institutionsData)
+
+        setEvaluations(
+          evaluationsData.map((evaluation) => ({
+            ...evaluation,
+            status: evaluation.status ?? "draft",
+          })),
         )
-      }
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return
+        }
 
-      if (!evaluationsResponse.ok) {
-        throw new Error(
-          "No se pudieron cargar los relevamientos",
+        console.error(error)
+
+        setInstitutionsError(
+          "No se pudieron cargar los datos institucionales.",
         )
-      }
-
-      const [
-        institutionsData,
-        evaluationsData,
-      ] = await Promise.all([
-        institutionsResponse.json() as Promise<Institution[]>,
-        evaluationsResponse.json() as Promise<Evaluation[]>,
-      ])
-
-      if (controller.signal.aborted) {
-        return
-      }
-
-      setInstitutions(institutionsData)
-
-      setEvaluations(
-        evaluationsData.map((evaluation) => ({
-          ...evaluation,
-          status:
-            evaluation.status ?? "draft",
-        })),
-      )
-    } catch (error) {
-      if (controller.signal.aborted) {
-        return
-      }
-
-      console.error(error)
-
-      setInstitutionsError(
-        "No se pudieron cargar los datos institucionales.",
-      )
-    } finally {
-      if (!controller.signal.aborted) {
-        setInstitutionsLoading(false)
+      } finally {
+        if (!controller.signal.aborted) {
+          setInstitutionsLoading(false)
+        }
       }
     }
-  }
 
-  loadData()
+    loadData()
 
-  return () => {
-    controller.abort()
-  }
-}, [])
+    return () => {
+      controller.abort()
+    }
+  }, [])
 
   const assessments = useMemo(() => {
     return institutions
       .map((institution) => ({
         institution,
-        assessment: calculateInstitutionAssessment(institution.id, evaluations),
+        assessment: calculateInstitutionAssessment(
+          institution.id,
+          evaluations,
+        ),
         institutionEvaluations: evaluations
-          .filter((evaluation) => evaluation.institutionId === institution.id)
-          .sort((a, b) => b.date.localeCompare(a.date) || b.version - a.version),
+          .filter(
+            (evaluation) =>
+              evaluation.institutionId === institution.id,
+          )
+          .sort(
+            (a, b) =>
+              b.date.localeCompare(a.date) ||
+              b.version - a.version,
+          ),
       }))
       .sort((a, b) => {
-        const categoryDifference = criticalityOrder[a.assessment.criticality] - criticalityOrder[b.assessment.criticality]
-        if (categoryDifference !== 0) return categoryDifference
-        return (b.assessment.score ?? -1) - (a.assessment.score ?? -1)
+        const categoryDifference =
+          criticalityOrder[a.assessment.criticality] -
+          criticalityOrder[b.assessment.criticality]
+
+        if (categoryDifference !== 0) {
+          return categoryDifference
+        }
+
+        return (
+          (b.assessment.score ?? -1) -
+          (a.assessment.score ?? -1)
+        )
       })
   }, [evaluations, institutions])
-  
+
   const normalizeSearchText = (value: string) =>
-  value
-    .toLocaleLowerCase("es-AR")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\p{L}\p{N}\s]/gu, "")
-    .replace(/\s+/g, " ")
-    .trim()
+    value
+      .toLocaleLowerCase("es-AR")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\p{L}\p{N}\s]/gu, "")
+      .replace(/\s+/g, " ")
+      .trim()
 
-const filteredAssessments = useMemo(() => {
-  const query = normalizeSearchText(searchQuery.trim())
+  const filterOptions = useMemo(() => {
+    const sectors = Array.from(
+      new Set(
+        institutions
+          .map((institution) => institution.sector)
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b, "es-AR"))
 
-  return assessments.filter(({ institution, assessment }) => {
-    const matchesSearch =
-      !query ||
-      normalizeSearchText(
-        [
-          institution.name,
-          institution.cue,
-          institution.address,
-        ]
-          .filter(Boolean)
-          .join(" "),
-      ).includes(query)
+    const departamentos = Array.from(
+      new Set(
+        institutions
+          .map((institution) => institution.departamento)
+          .filter(
+            (value): value is string => Boolean(value),
+          ),
+      ),
+    ).sort((a, b) => a.localeCompare(b, "es-AR"))
 
-    const matchesCriticality =
-      criticalityFilter === "todas" ||
-      assessment.criticality === criticalityFilter
+    const localidades = Array.from(
+      new Set(
+        institutions
+          .filter(
+            (institution) =>
+              departamentoFilter === "todos" ||
+              institution.departamento ===
+                departamentoFilter,
+          )
+          .map((institution) => institution.localidad)
+          .filter(
+            (value): value is string => Boolean(value),
+          ),
+      ),
+    ).sort((a, b) => a.localeCompare(b, "es-AR"))
 
-    return matchesSearch && matchesCriticality
-  })
-}, [assessments, searchQuery, criticalityFilter])
-  
-const counts = useMemo(() => {
+    const ambitos = Array.from(
+      new Set(
+        institutions
+          .map((institution) => institution.ambito)
+          .filter(
+            (value): value is string => Boolean(value),
+          ),
+      ),
+    ).sort((a, b) => a.localeCompare(b, "es-AR"))
+
+    return {
+      sectors,
+      departamentos,
+      localidades,
+      ambitos,
+    }
+  }, [institutions, departamentoFilter])
+
+  const filteredAssessments = useMemo(() => {
+    const query = normalizeSearchText(searchQuery.trim())
+
+    return assessments.filter(
+      ({ institution, assessment }) => {
+        const searchableText = normalizeSearchText(
+          [
+            institution.name,
+            institution.cue,
+            institution.address,
+            institution.localidad,
+            institution.departamento,
+            institution.ambito,
+            institution.sector,
+            institution.directivo?.nombre,
+            ...institution.telefono,
+            ...institution.email,
+            ...institution.levels.flatMap((level) => [
+              level.level,
+              level.modalidad ?? "",
+              level.empresa ?? "",
+              ...(level.studyPlans ?? []).map(
+                (plan) => plan.nombre,
+              ),
+            ]),
+          ]
+            .filter(Boolean)
+            .join(" "),
+        )
+
+        const matchesSearch =
+          !query || searchableText.includes(query)
+
+        const matchesSector =
+          sectorFilter === "todas" ||
+          institution.sector === sectorFilter
+
+        const matchesDepartamento =
+          departamentoFilter === "todos" ||
+          institution.departamento === departamentoFilter
+
+        const matchesLocalidad =
+          localidadFilter === "todas" ||
+          institution.localidad === localidadFilter
+
+        const matchesAmbito =
+          ambitoFilter === "todos" ||
+          institution.ambito === ambitoFilter
+
+        const matchesCriticality =
+          criticalityFilter === "todas" ||
+          assessment.criticality === criticalityFilter
+
+        return (
+          matchesSearch &&
+          matchesSector &&
+          matchesDepartamento &&
+          matchesLocalidad &&
+          matchesAmbito &&
+          matchesCriticality
+        )
+      },
+    )
+  }, [
+    assessments,
+    searchQuery,
+    sectorFilter,
+    departamentoFilter,
+    localidadFilter,
+    ambitoFilter,
+    criticalityFilter,
+  ])
+
+  const counts = useMemo(() => {
     return assessments.reduce(
       (acc, item) => {
         acc[item.assessment.criticality] += 1
         return acc
       },
-      { alta: 0, media: 0, baja: 0, "sin-relevamiento": 0 } as Record<Criticality, number>,
+      {
+        alta: 0,
+        media: 0,
+        baja: 0,
+        "sin-relevamiento": 0,
+      } as Record<Criticality, number>,
     )
   }, [assessments])
 
-const criticalityFilters = [
-  {
-    value: "todas" as const,
-    label: "Todas",
-    count: assessments.length,
-  },
-  {
-    value: "alta" as const,
-    label: "Alta",
-    count: counts.alta,
-  },
-  {
-    value: "media" as const,
-    label: "Media",
-    count: counts.media,
-  },
-  {
-    value: "baja" as const,
-    label: "Baja",
-    count: counts.baja,
-  },
-  {
-    value: "sin-relevamiento" as const,
-    label: "Sin relevamiento",
-    count: counts["sin-relevamiento"],
-  },
-]
+  const criticalityFilters = [
+    {
+      value: "todas" as const,
+      label: "Todas",
+      count: assessments.length,
+    },
+    {
+      value: "alta" as const,
+      label: "Alta",
+      count: counts.alta,
+    },
+    {
+      value: "media" as const,
+      label: "Media",
+      count: counts.media,
+    },
+    {
+      value: "baja" as const,
+      label: "Baja",
+      count: counts.baja,
+    },
+    {
+      value: "sin-relevamiento" as const,
+      label: "Sin relevamiento",
+      count: counts["sin-relevamiento"],
+    },
+  ]
+
+  const hasInstitutionFilters =
+    sectorFilter !== "todas" ||
+    departamentoFilter !== "todos" ||
+    localidadFilter !== "todas" ||
+    ambitoFilter !== "todos"
+
+  const hasAnyFilters =
+    searchQuery.trim() !== "" ||
+    hasInstitutionFilters ||
+    criticalityFilter !== "todas"
+
+  const clearFilters = () => {
+    setSearchQuery("")
+    setSectorFilter("todas")
+    setDepartamentoFilter("todos")
+    setLocalidadFilter("todas")
+    setAmbitoFilter("todos")
+    setCriticalityFilter("todas")
+  }
 
   return (
     <main className="shell">
       <header className="topbar">
         <div>
-          <Link className="back-link" href="/">← Dashboard</Link>
-          <p className="eyebrow">CIRCUITO 3</p>
+          <Link className="back-link" href="/">
+            ← Dashboard
+          </Link>
+
+          <p className="eyebrow">zona de accion</p>
+
           <h1>Instituciones</h1>
-          <p className="muted">Instituciones del circuito ordenadas por criticidad.</p>
+
+          <p className="muted">
+            Instituciones del territorio ordenadas por criticidad.
+          </p>
         </div>
-        <Link className="primary-button" href="/relevamientos/nuevo">Nuevo relevamiento</Link>
+
+        <Link
+          className="primary-button"
+          href="/relevamientos/nuevo"
+        >
+          Nuevo relevamiento
+        </Link>
       </header>
 
       <section className="institution-summary-bar">
         {institutionsLoading && (
-          <p className="muted">Cargando instituciones...</p>
+          <p className="muted">
+            Cargando instituciones...
+          </p>
         )}
 
         {institutionsError && (
-          <p className="muted">{institutionsError}</p>
-        )}
-        <div><strong>{institutions.length}</strong><span>Instituciones</span></div>
-        <div><strong>{counts.alta}</strong><span>Criticidad alta</span></div>
-        <div><strong>{counts.media}</strong><span>Criticidad media</span></div>
-        <div><strong>{counts.baja}</strong><span>Criticidad baja</span></div>
-        <div><strong>{counts["sin-relevamiento"]}</strong><span>Sin relevamiento</span></div>
-      </section>
-      <section
-  className="institution-search-section"
-  aria-label="Buscar y filtrar instituciones"
->
-  <div className="institution-search">
-   
-
-    <div className="institution-search-input-wrap">
-      <input
-        id="institution-search"
-        type="search"
-        value={searchQuery}
-        onChange={(event) => setSearchQuery(event.target.value)}
-        placeholder="Nombre, CUE o domicilio..."
-        autoComplete="off"
-      />
-
-      {searchQuery && (
-        <button
-          type="button"
-          className="institution-search-clear"
-          onClick={() => setSearchQuery("")}
-          aria-label="Limpiar búsqueda"
-        >
-          ×
-        </button>
-      )}
-    </div>
-
-    <div className="institution-filter-group">
-      
-
-      <div
-          className="institution-filter-options"
-          role="group"
-          aria-label="Filtrar por criticidad"
-        >
-          {criticalityFilters.map((filter) => {
-            const isActive = criticalityFilter === filter.value
-
-            return (
-              <button
-                key={filter.value}
-                type="button"
-                className={`institution-filter-chip ${
-                  isActive ? "is-active" : ""
-                }`}
-                aria-pressed={isActive}
-                onClick={() => {
-                  setCriticalityFilter(
-                    criticalityFilter === filter.value
-                      ? "todas"
-                      : filter.value,
-                  )
-                }}
-              >
-                {filter.value !== "todas" && (
-                  <span
-                    className={`institution-filter-dot ${filter.value}`}
-                    aria-hidden="true"
-                  />
-                )}
-
-                <span>{filter.label}</span>
-                <strong>{filter.count}</strong>
-              </button>
-            )
-          })}
-        </div>
-    </div>
-
-    <p
-      className="institution-search-results"
-      aria-live="polite"
-    >
-      {searchQuery.trim() || criticalityFilter !== "todas"
-        ? `${filteredAssessments.length} ${
-            filteredAssessments.length === 1
-              ? "institución encontrada"
-              : "instituciones encontradas"
-          }`
-        : `${assessments.length} instituciones`}
-    </p>
-
-    {(searchQuery.trim() || criticalityFilter !== "todas") &&
-      filteredAssessments.length === 0 && (
-        <div className="institution-empty-state">
-          <p>
-            No encontramos instituciones con estos filtros.
+          <p className="muted">
+            {institutionsError}
           </p>
+        )}
 
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => {
-              setSearchQuery("")
-              setCriticalityFilter("todas")
-            }}
-          >
-            Limpiar filtros
-          </button>
+        <div>
+          <strong>{institutions.length}</strong>
+          <span>Instituciones</span>
         </div>
-      )}
-  </div>
-</section>
-      <section className="institution-card-grid" aria-label="Instituciones del Circuito 3">
-        {filteredAssessments.map(({ institution, assessment, institutionEvaluations }) => {
-          const isExpanded = expandedId === institution.id
-          const lastEvaluation = institutionEvaluations[0]
 
-          return (
-            <article className={`institution-card-wrap ${isExpanded ? "is-expanded" : ""}`} key={institution.id}>
-              <article className={`institution-card criticality-${assessment.criticality}`}>
-                <div className="institution-card-top">
-                  <span className={`criticality-badge ${assessment.criticality}`}>
-                    {criticalityLabel(assessment.criticality)}
-                  </span>
-                  {assessment.evaluationCount > 0 && <span className="institution-evaluation-count">{assessment.evaluationCount} relevamiento{assessment.evaluationCount === 1 ? "" : "s"}</span>}
-                </div>
+        <div>
+          <strong>{counts.alta}</strong>
+          <span>Criticidad alta</span>
+        </div>
+
+        <div>
+          <strong>{counts.media}</strong>
+          <span>Criticidad media</span>
+        </div>
+
+        <div>
+          <strong>{counts.baja}</strong>
+          <span>Criticidad baja</span>
+        </div>
+
+        <div>
+          <strong>{counts["sin-relevamiento"]}</strong>
+          <span>Sin relevamiento</span>
+        </div>
+      </section>
+
+      <section
+        className="institution-search-section"
+        aria-label="Buscar y filtrar instituciones"
+      >
+        <div className="institution-search">
+          <div className="institution-search-input-wrap">
+            <input
+              id="institution-search"
+              type="search"
+              value={searchQuery}
+              onChange={(event) =>
+                setSearchQuery(event.target.value)
+              }
+              placeholder="Buscar por cualquier dato institucional..."
+              autoComplete="off"
+            />
+
+            {searchQuery && (
+              <button
+                type="button"
+                className="institution-search-clear"
+                onClick={() => setSearchQuery("")}
+                aria-label="Limpiar búsqueda"
+              >
+                ×
+              </button>
+            )}
+          </div>
+
+          <div className="institution-filter-group">
+            <div
+              className="institution-filter-options"
+              role="group"
+              aria-label="Filtros institucionales"
+            >
+              <label className="institution-filter-field">
+                <span>Sector</span>
+
+                <select
+                  value={sectorFilter}
+                  onChange={(event) =>
+                    setSectorFilter(event.target.value)
+                  }
+                >
+                  <option value="todas">Todos</option>
+
+                  {filterOptions.sectors.map((sector) => (
+                    <option key={sector} value={sector}>
+                      {sector}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="institution-filter-field">
+                <span>Departamento</span>
+
+                <select
+                  value={departamentoFilter}
+                  onChange={(event) => {
+                  const value = event.target.value
+                  setDepartamentoFilter(value)
+                  setLocalidadFilter("todas")
+                }}
+                >
+                  <option value="todos">Todos</option>
+
+                  {filterOptions.departamentos.map(
+                    (departamento) => (
+                      <option
+                        key={departamento}
+                        value={departamento}
+                      >
+                        {departamento}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </label>
+
+              <label className="institution-filter-field">
+                <span>Localidad</span>
+
+                <select
+                  value={localidadFilter}
+                  onChange={(event) =>
+                    setLocalidadFilter(
+                      event.target.value,
+                    )
+                  }
+                >
+                  <option value="todas">Todas</option>
+
+                  {filterOptions.localidades
+                    .filter(
+                      (localidad) =>
+                        departamentoFilter === "todas" ||
+                        institutions.some(
+                          (institution) =>
+                            institution.departamento === departamentoFilter &&
+                            institution.localidad === localidad
+                        )
+                    )
+                    .map((localidad) => (
+                      <option
+                        key={localidad}
+                        value={localidad}
+                      >
+                        {localidad}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </label>
+
+              <label className="institution-filter-field">
+                <span>Ámbito</span>
+
+                <select
+                  value={ambitoFilter}
+                  onChange={(event) =>
+                    setAmbitoFilter(event.target.value)
+                  }
+                >
+                  <option value="todos">Todos</option>
+
+                  {filterOptions.ambitos.map((ambito) => (
+                    <option key={ambito} value={ambito}>
+                      {ambito}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div className="institution-filter-group">
+            <div
+              className="institution-filter-options"
+              role="group"
+              aria-label="Filtrar por criticidad"
+            >
+              {criticalityFilters.map((filter) => {
+                const isActive =
+                  criticalityFilter === filter.value
+
+                return (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    className={`institution-filter-chip ${
+                      isActive ? "is-active" : ""
+                    }`}
+                    aria-pressed={isActive}
+                    onClick={() => {
+                      setCriticalityFilter(
+                        criticalityFilter === filter.value
+                          ? "todas"
+                          : filter.value,
+                      )
+                    }}
+                  >
+                    {filter.value !== "todas" && (
+                      <span
+                        className={`institution-filter-dot ${filter.value}`}
+                        aria-hidden="true"
+                      />
+                    )}
+
+                    <span>{filter.label}</span>
+                    <strong>{filter.count}</strong>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="institution-search-toolbar">
+            <p
+              className="institution-search-results"
+              aria-live="polite"
+            >
+              {hasAnyFilters
+                ? `${filteredAssessments.length} ${
+                    filteredAssessments.length === 1
+                      ? "institución encontrada"
+                      : "instituciones encontradas"
+                  }`
+                : `${assessments.length} instituciones`}
+            </p>
+
+            {hasAnyFilters && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={clearFilters}
+              >
+                Limpiar filtros
+              </button>
+            )}
+          </div>
+
+          {hasAnyFilters &&
+            filteredAssessments.length === 0 && (
+              <div className="institution-empty-state">
+                <p>
+                  No encontramos instituciones con estos
+                  criterios.
+                </p>
+
                 <button
                   type="button"
-                  className="institution-name-button"
-                  aria-expanded={isExpanded}
-                  onClick={() => setExpandedId(isExpanded ? null : institution.id)}
+                  className="secondary-button"
+                  onClick={clearFilters}
                 >
-                  {institution.name}
+                  Limpiar filtros
                 </button>
-                <p>{institution.address} · {institution.sector}</p>
-                <div className="institution-meta">
-                  <span>CUE: {institution.cue || "No disponible"}</span>
-                  <span>{institution.levels.map((level) => level.level).join(" · ")}</span>
-                </div>
-                <div className="institution-card-footer">
-                  <small>{assessment.lastDate ? `Hace ${daysSince(assessment.lastDate)} ${daysSince(assessment.lastDate) === 1 ? "día" : "días"}` : "Nunca relevada"}</small>
-                  <Link
-                    className={assessment.evaluationCount > 0 ? "secondary-button institution-action" : "primary-button institution-action"}
-                    href={`/relevamientos/nuevo?institution=${encodeURIComponent(institution.id)}`}
+              </div>
+            )}
+        </div>
+      </section>
+
+      <section
+        className="institution-card-grid"
+        aria-label="Instituciones del Circuito 3"
+      >
+        {filteredAssessments.map(
+          ({
+            institution,
+            assessment,
+            institutionEvaluations,
+          }) => {
+            const isExpanded =
+              expandedId === institution.id
+
+            const lastEvaluation =
+              institutionEvaluations[0]
+
+            const mapsUrl = googleMapsUrl(
+              institution.latitude,
+              institution.longitude,
+            )
+
+            return (
+              <article
+                className={`institution-card-wrap ${
+                  isExpanded ? "is-expanded" : ""
+                }`}
+                key={institution.id}
+              >
+                <article
+                  className={`institution-card criticality-${assessment.criticality}`}
+                >
+                  <div className="institution-card-top">
+                    <span
+                      className={`criticality-badge ${assessment.criticality}`}
+                    >
+                      {criticalityLabel(
+                        assessment.criticality,
+                      )}
+                    </span>
+
+                    {assessment.evaluationCount > 0 && (
+                      <span className="institution-evaluation-count">
+                        {assessment.evaluationCount}{" "}
+                        relevamiento
+                        {assessment.evaluationCount === 1
+                          ? ""
+                          : "s"}
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="institution-name-button"
+                    aria-expanded={isExpanded}
+                    onClick={() =>
+                      setExpandedId(
+                        isExpanded
+                          ? null
+                          : institution.id,
+                      )
+                    }
                   >
-                    {assessment.evaluationCount > 0 ? "Actualizar situación" : "Iniciar relevamiento"}
-                  </Link>
-                </div>
-              </article>
+                    {institution.name}
+                  </button>
 
-              {isExpanded && (
-                <section className="institution-context" aria-label={`Detalle de ${institution.name}`}>
-                  <div className="context-header">
-                    <div>
-                      <p className="eyebrow">DETALLE INSTITUCIONAL</p>
-                      <h2>{institution.name}</h2>
-                    </div>
-                    <button type="button" className="context-close" onClick={() => setExpandedId(null)}>Cerrar</button>
+                  <p>
+                    {institution.address} ·{" "}
+                    {institution.sector}
+                  </p>
+
+                  <div className="institution-meta">
+                    <span>
+                      CUE:{" "}
+                      {institution.cue ||
+                        "No disponible"}
+                    </span>
+
+                    <span>
+                      {institution.levels
+                        .map((level) => level.level)
+                        .join(" · ")}
+                    </span>
                   </div>
 
-                  <div className="context-info-grid">
-                    <div><span>CUE</span><strong>{institution.cue || "No disponible"}</strong></div>
-                    <div><span>Domicilio</span><strong>{institution.address || "No disponible"}</strong></div>
-                    <div><span>Sector</span><strong>{institution.sector || "No disponible"}</strong></div>
-                    <div><span>Relevamientos</span><strong>{institutionEvaluations.length}</strong></div>
-                    <div><span>Último relevamiento</span><strong>{assessment.lastDate ? `Hace ${daysSince(assessment.lastDate)} ${daysSince(assessment.lastDate) === 1 ? "día" : "días"}` : "Nunca relevada"}</strong></div>
-                    <div><span>Último estado</span><strong>{lastEvaluation ? (lastEvaluation.status === "closed" ? "Cerrado" : "En curso") : "Sin relevamiento"}</strong></div>
-                  </div>
+                  <div className="institution-card-footer">
+                    <small>
+                      {assessment.lastDate
+                        ? `Hace ${daysSince(
+                            assessment.lastDate,
+                          )} ${
+                            daysSince(
+                              assessment.lastDate,
+                            ) === 1
+                              ? "día"
+                              : "días"
+                          }`
+                        : "Nunca relevada"}
+                    </small>
 
-                  <div className="context-block">
-                    <div className="context-block-heading">
-                      <h3>Situación actual</h3>
-                      <span className={`criticality-badge ${assessment.criticality}`}>{criticalityLabel(assessment.criticality)}</span>
+                    <Link
+                      className={
+                        assessment.evaluationCount > 0
+                          ? "secondary-button institution-action"
+                          : "primary-button institution-action"
+                      }
+                      href={`/relevamientos/nuevo?institution=${encodeURIComponent(
+                        institution.id,
+                      )}`}
+                    >
+                      {assessment.evaluationCount > 0
+                        ? "Actualizar situación"
+                        : "Iniciar relevamiento"}
+                    </Link>
+                  </div>
+                </article>
+
+                {isExpanded && (
+                  <section
+                    className="institution-context"
+                    aria-label={`Detalle de ${institution.name}`}
+                  >
+                    <div className="context-header">
+                      <div>
+                        <p className="eyebrow">
+                          DETALLE INSTITUCIONAL
+                        </p>
+
+                        <h2>{institution.name}</h2>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="context-close"
+                        onClick={() =>
+                          setExpandedId(null)
+                        }
+                      >
+                        Cerrar
+                      </button>
                     </div>
-                    <div className="dimension-status-grid">
-                      {dimensions.map((dimension) => {
-                        const latestForDimension = institutionEvaluations
-                          .map((evaluation) => ({ evaluation, assessment: dimensionAssessment(evaluation, dimension.id) }))
-                          .find((item) => item.assessment?.score !== null)
-                        const current = latestForDimension?.assessment ?? null
-                        return (
-                          <div className="dimension-status" key={dimension.id}>
-                            <span>{dimension.title}</span>
-                            <strong className={`status-text ${current?.criticality ?? "sin-relevamiento"}`}>
-                              {criticalityLabel(current?.criticality ?? "sin-relevamiento")}
+
+                    <div className="context-info-grid">
+                      <div>
+                        <span>CUE</span>
+                        <strong>
+                          {institution.cue ||
+                            "No disponible"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>Sector</span>
+                        <strong>
+                          {institution.sector ||
+                            "No disponible"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>Domicilio</span>
+                        <strong>
+                          {institution.address ||
+                            "No disponible"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>Localidad</span>
+                        <strong>
+                          {institution.localidad ||
+                            "No disponible"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>Departamento</span>
+                        <strong>
+                          {institution.departamento ||
+                            "No disponible"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>Ámbito</span>
+                        <strong>
+                          {institution.ambito ||
+                            "No disponible"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>Relevamientos</span>
+                        <strong>
+                          {institutionEvaluations.length}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>Último relevamiento</span>
+                        <strong>
+                          {assessment.lastDate
+                            ? `Hace ${daysSince(
+                                assessment.lastDate,
+                              )} ${
+                                daysSince(
+                                  assessment.lastDate,
+                                ) === 1
+                                  ? "día"
+                                  : "días"
+                              }`
+                            : "Nunca relevada"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>Último estado</span>
+                        <strong>
+                          {lastEvaluation
+                            ? lastEvaluation.status ===
+                              "closed"
+                              ? "Cerrado"
+                              : "En curso"
+                            : "Sin relevamiento"}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="context-block">
+                      <div className="context-block-heading">
+                        <h3>Ubicación y contacto</h3>
+                      </div>
+
+                      <div className="context-info-grid">
+                        <div>
+                          <span>Teléfonos</span>
+
+                          <strong>
+                            {institution.telefono.length >
+                            0
+                              ? institution.telefono.join(
+                                  " · ",
+                                )
+                              : "No disponible"}
+                          </strong>
+                        </div>
+
+                        <div>
+                          <span>Emails</span>
+
+                          <strong>
+                            {institution.email.length > 0
+                              ? institution.email.join(
+                                  " · ",
+                                )
+                              : "No disponible"}
+                          </strong>
+                        </div>
+
+                        {mapsUrl && (
+                          <div>
+                            <span>Ubicación</span>
+
+                            <strong>
+                              <a
+                                href={mapsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                Cómo llegar
+                              </a>
                             </strong>
                           </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="context-block">
-                    <h3>Información derivada de los relevamientos</h3>
-                    {institutionEvaluations.length === 0 ? (
-                      <p className="muted">Todavía no hay información derivada.</p>
-                    ) : (
-                      <div className="derived-grid">
-                        {dimensions.map((dimension) => {
-                          const entries = institutionEvaluations.flatMap((evaluation) =>
-                            dimensionEntries(evaluation, dimension.id).map((entry) => ({ ...entry, date: evaluation.date, version: evaluation.version })),
-                          )
-                          return (
-                            <article className="derived-dimension" key={dimension.id}>
-                              <h4>{dimension.title}</h4>
-                              {entries.length === 0 ? (
-                                <p className="muted">Sin observaciones registradas.</p>
-                              ) : (
-                                entries.slice(0, 8).map((entry, index) => (
-                                  <div className="derived-entry" key={`${entry.date}-${entry.version}-${entry.indicator}-${index}`}>
-                                    <strong>{entry.indicator}</strong>
-                                    <small>{formatDate(entry.date)} · v{entry.version}</small>
-                                    <ul>{entry.entries.map((text, textIndex) => <li key={textIndex}>{text}</li>)}</ul>
-                                  </div>
-                                ))
-                              )}
-                            </article>
-                          )
-                        })}
+                        )}
                       </div>
-                    )}
-                  </div>
+                    </div>
 
-                  <div className="context-block">
-                    <h3>Evolución por relevamiento</h3>
-                    {institutionEvaluations.length < 2 ? (
-                      <p className="muted">Se necesitan al menos dos relevamientos para mostrar evolución.</p>
-                    ) : (
-                      <div className="evolution-table-wrap">
-                        <table className="evolution-table">
-                          <thead><tr><th>Dimensión</th><th>{formatDate(institutionEvaluations[1].date)}</th><th>{formatDate(institutionEvaluations[0].date)}</th></tr></thead>
-                          <tbody>
-                            {dimensions.map((dimension) => {
-                              const previous = dimensionAssessment(institutionEvaluations[1], dimension.id)?.criticality ?? "sin-relevamiento"
-                              const current = dimensionAssessment(institutionEvaluations[0], dimension.id)?.criticality ?? "sin-relevamiento"
-                              return <tr key={dimension.id}><td>{dimension.title}</td><td><span className={`status-text ${previous}`}>{criticalityLabel(previous)}</span></td><td><span className={`status-text ${current}`}>{criticalityLabel(current)}</span></td></tr>
-                            })}
-                          </tbody>
-                        </table>
+                    <div className="context-block">
+                      <div className="context-block-heading">
+                        <h3>Autoridades</h3>
                       </div>
-                    )}
-                  </div>
 
-                  <div className="context-block">
-                    <div className="context-block-heading">
-                      <h3>Información institucional</h3>
-                    </div>
-                    <div className="levels-list">
-                      {institution.levels.map((level) => (
-                        <div key={`${level.level}-${level.empresa}`}><strong>{level.level}</strong><span>EMPRESA {level.empresa || "No disponible"}</span></div>
-                      ))}
-                    </div>
-                  </div>
+                      <div className="context-info-grid">
+                        <div>
+                          <span>Directivo/a vigente</span>
 
-                  <div className="context-block">
-                    <h3>Historial de relevamientos</h3>
-                    {institutionEvaluations.length === 0 ? (
-                      <p className="muted">No hay relevamientos registrados.</p>
-                    ) : (
-                      <div className="evaluation-history">
-                        {institutionEvaluations.map((evaluation) => (
-                          <div className="evaluation-history-row" key={evaluation.id}>
-                            <div><strong>{formatDate(evaluation.date)}</strong>
+                          <strong>
+                            {institution.directivo
+                              ?.nombre ||
+                              "No disponible"}
+                          </strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="context-block">
+                      <div className="context-block-heading">
+                        <h3>Oferta educativa</h3>
+                      </div>
+
+                      <div className="levels-list">
+                        {institution.levels.map((level) => (
+                          <div key={level.id}>
+                            <strong>{level.level}</strong>
+
+                            {level.modalidad && (
                               <span>
-                                {evaluation.institutionLevelId
-                                  ? institution.levels.find(
-                                      (level) =>
-                                        level.id === evaluation.institutionLevelId,
-                                    )?.level ?? "Nivel no encontrado"
-                                  : "Toda la institución"}
-                              </span></div>
-                            <div><span>v{evaluation.version}</span><span className={`history-status ${evaluation.status}`}>{evaluation.status === "closed" ? "Cerrado" : "En curso"}</span></div>
-                            <Link
-                              className="secondary-button"
-                              href={`/relevamientos/nuevo?evaluation=${encodeURIComponent(evaluation.id)}`}
-                            >
-                              {evaluation.status === "closed" ? "Consultar" : "Continuar"}
-                            </Link>
+                                Modalidad:{" "}
+                                {level.modalidad}
+                              </span>
+                            )}
+
+                            {level.empresa && (
+                              <span>
+                                Empresa: {level.empresa}
+                              </span>
+                            )}
+
+                            {level.level === "Secundario" &&
+                              level.studyPlans &&
+                              level.studyPlans.length > 0 && (
+                                <div className="educational-offer-plans">
+                                  <span className="educational-offer-label">
+                                    Planes de estudio
+                                  </span>
+
+                                  <ul>
+                                    {level.studyPlans.map(
+                                      (plan) => (
+                                        <li key={plan.id}>
+                                          {plan.nombre}
+                                        </li>
+                                      ),
+                                    )}
+                                  </ul>
+                                </div>
+                              )}
                           </div>
                         ))}
                       </div>
-                    )}
-                  </div>
-                </section>
-              )}
-            </article>
-          )
-        })}
+                    </div>
+
+                    <div className="context-block">
+                      <div className="context-block-heading">
+                        <h3>Situación actual</h3>
+
+                        <span
+                          className={`criticality-badge ${assessment.criticality}`}
+                        >
+                          {criticalityLabel(
+                            assessment.criticality,
+                          )}
+                        </span>
+                      </div>
+
+                      <div className="dimension-status-grid">
+                        {dimensions.map((dimension) => {
+                          const latestForDimension =
+                            institutionEvaluations
+                              .map(
+                                (evaluation) => ({
+                                  evaluation,
+                                  assessment:
+                                    dimensionAssessment(
+                                      evaluation,
+                                      dimension.id,
+                                    ),
+                                }),
+                              )
+                              .find(
+                                (item) =>
+                                  item.assessment
+                                    ?.score !== null,
+                              )
+
+                          const current =
+                            latestForDimension?.assessment ??
+                            null
+
+                          return (
+                            <div
+                              className="dimension-status"
+                              key={dimension.id}
+                            >
+                              <span>
+                                {dimension.title}
+                              </span>
+
+                              <strong
+                                className={`status-text ${
+                                  current?.criticality ??
+                                  "sin-relevamiento"
+                                }`}
+                              >
+                                {criticalityLabel(
+                                  current?.criticality ??
+                                    "sin-relevamiento",
+                                )}
+                              </strong>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="context-block">
+                      <h3>
+                        Información derivada de los
+                        relevamientos
+                      </h3>
+
+                      {institutionEvaluations.length ===
+                      0 ? (
+                        <p className="muted">
+                          Todavía no hay información
+                          derivada.
+                        </p>
+                      ) : (
+                        <div className="derived-grid">
+                          {dimensions.map((dimension) => {
+                            const entries =
+                              institutionEvaluations.flatMap(
+                                (evaluation) =>
+                                  dimensionEntries(
+                                    evaluation,
+                                    dimension.id,
+                                  ).map((entry) => ({
+                                    ...entry,
+                                    date: evaluation.date,
+                                    version:
+                                      evaluation.version,
+                                  })),
+                              )
+
+                            return (
+                              <article
+                                className="derived-dimension"
+                                key={dimension.id}
+                              >
+                                <h4>
+                                  {dimension.title}
+                                </h4>
+
+                                {entries.length === 0 ? (
+                                  <p className="muted">
+                                    Sin observaciones
+                                    registradas.
+                                  </p>
+                                ) : (
+                                  entries
+                                    .slice(0, 8)
+                                    .map(
+                                      (
+                                        entry,
+                                        index,
+                                      ) => (
+                                        <div
+                                          className="derived-entry"
+                                          key={`${entry.date}-${entry.version}-${entry.indicator}-${index}`}
+                                        >
+                                          <strong>
+                                            {
+                                              entry.indicator
+                                            }
+                                          </strong>
+
+                                          <small>
+                                            {formatDate(
+                                              entry.date,
+                                            )}{" "}
+                                            · v
+                                            {
+                                              entry.version
+                                            }
+                                          </small>
+
+                                          <ul>
+                                            {entry.entries.map(
+                                              (
+                                                text,
+                                                textIndex,
+                                              ) => (
+                                                <li
+                                                  key={
+                                                    textIndex
+                                                  }
+                                                >
+                                                  {text}
+                                                </li>
+                                              ),
+                                            )}
+                                          </ul>
+                                        </div>
+                                      ),
+                                    )
+                                )}
+                              </article>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="context-block">
+                      <h3>
+                        Evolución por relevamiento
+                      </h3>
+
+                      {institutionEvaluations.length <
+                      2 ? (
+                        <p className="muted">
+                          Se necesitan al menos dos
+                          relevamientos para mostrar
+                          evolución.
+                        </p>
+                      ) : (
+                        <div className="evolution-table-wrap">
+                          <table className="evolution-table">
+                            <thead>
+                              <tr>
+                                <th>Dimensión</th>
+                                <th>
+                                  {formatDate(
+                                    institutionEvaluations[1]
+                                      .date,
+                                  )}
+                                </th>
+                                <th>
+                                  {formatDate(
+                                    institutionEvaluations[0]
+                                      .date,
+                                  )}
+                                </th>
+                              </tr>
+                            </thead>
+
+                            <tbody>
+                              {dimensions.map(
+                                (dimension) => {
+                                  const previous =
+                                    dimensionAssessment(
+                                      institutionEvaluations[1],
+                                      dimension.id,
+                                    )?.criticality ??
+                                    "sin-relevamiento"
+
+                                  const current =
+                                    dimensionAssessment(
+                                      institutionEvaluations[0],
+                                      dimension.id,
+                                    )?.criticality ??
+                                    "sin-relevamiento"
+
+                                  return (
+                                    <tr
+                                      key={dimension.id}
+                                    >
+                                      <td>
+                                        {
+                                          dimension.title
+                                        }
+                                      </td>
+
+                                      <td>
+                                        <span
+                                          className={`status-text ${previous}`}
+                                        >
+                                          {criticalityLabel(
+                                            previous,
+                                          )}
+                                        </span>
+                                      </td>
+
+                                      <td>
+                                        <span
+                                          className={`status-text ${current}`}
+                                        >
+                                          {criticalityLabel(
+                                            current,
+                                          )}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  )
+                                },
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="context-block">
+                      <h3>
+                        Historial de relevamientos
+                      </h3>
+
+                      {institutionEvaluations.length ===
+                      0 ? (
+                        <p className="muted">
+                          No hay relevamientos registrados.
+                        </p>
+                      ) : (
+                        <div className="evaluation-history">
+                          {institutionEvaluations.map(
+                            (evaluation) => (
+                              <div
+                                className="evaluation-history-row"
+                                key={evaluation.id}
+                              >
+                                <div>
+                                  <strong>
+                                    {formatDate(
+                                      evaluation.date,
+                                    )}
+                                  </strong>
+
+                                  <span>
+                                    {evaluation.institutionLevelId
+                                      ? institution.levels.find(
+                                          (level) =>
+                                            level.id ===
+                                            evaluation.institutionLevelId,
+                                        )?.level ??
+                                        "Nivel no encontrado"
+                                      : "Toda la institución"}
+                                  </span>
+                                </div>
+
+                                <div>
+                                  <span>
+                                    v
+                                    {
+                                      evaluation.version
+                                    }
+                                  </span>
+
+                                  <span
+                                    className={`history-status ${evaluation.status}`}
+                                  >
+                                    {evaluation.status ===
+                                    "closed"
+                                      ? "Cerrado"
+                                      : "En curso"}
+                                  </span>
+                                </div>
+
+                                <Link
+                                  className="secondary-button"
+                                  href={`/relevamientos/nuevo?evaluation=${encodeURIComponent(
+                                    evaluation.id,
+                                  )}`}
+                                >
+                                  {evaluation.status ===
+                                  "closed"
+                                    ? "Consultar"
+                                    : "Continuar"}
+                                </Link>
+                              </div>
+                            ),
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                )}
+              </article>
+            )
+          },
+        )}
       </section>
     </main>
   )

@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { usePathname } from "next/navigation"
+import { signOut } from "next-auth/react"
 
 const menuItems = [
   { href: "/", label: "Inicio" },
@@ -66,6 +67,17 @@ export function AppHeader() {
                   {item.label}
                 </Link>
               ))}
+
+              <button
+  type="button"
+  onClick={() => {
+    setOpen(false)
+    signOut({ callbackUrl: "/signin" })
+  }}
+>
+  Cerrar sesión
+</button>
+
             </nav>
           )}
         </div>

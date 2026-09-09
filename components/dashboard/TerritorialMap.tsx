@@ -1,14 +1,22 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
+import type { Layer } from "leaflet"
 import {
+  divIcon,
+  geoJSON as leafletGeoJSON,
+} from "leaflet"
+import {
+  GeoJSON as LeafletGeoJSON,
   MapContainer,
+  Marker,
   TileLayer,
-  CircleMarker,
-  Popup,
   useMap,
 } from "react-leaflet"
 import "leaflet/dist/leaflet.css"
+
+import { booleanPointInPolygon } from "@turf/boolean-point-in-polygon"
+import { pointOnFeature } from "@turf/point-on-feature"
 
 import type { Institution } from "@/types/institution"
 import {
@@ -17,6 +25,48 @@ import {
 } from "@/lib/criticality"
 import type { Evaluation } from "@/types/evaluation"
 
+type DepartmentFeature = {
+  type: "Feature"
+  properties?: Record<string, unknown> | null
+  geometry: unknown
+}
+
+type DepartmentGeoJSON = {
+  type: "FeatureCollection"
+  features: DepartmentFeature[]
+}
+
+type DepartmentStats = {
+  total: number
+  evaluated: number
+  pending: number
+  counts: Record<Criticality, number>
+}
+
+type SectionFeature = {
+  type: "Feature"
+  properties?: {
+    NOMBRE?: string
+    NUMERO?: number
+  } | null
+  geometry: {
+    type: "Polygon" | "MultiPolygon"
+    coordinates: unknown
+  }
+}
+
+type SectionGeoJSON = {
+  type: "FeatureCollection"
+  features: SectionFeature[]
+}
+
+type SectionStats = {
+  total: number
+  evaluated: number
+  pending: number
+  counts: Record<Criticality, number>
+}
+
 const COLORS: Record<Criticality, string> = {
   alta: "#BF1363",
   media: "#FFE066",
@@ -24,175 +74,756 @@ const COLORS: Record<Criticality, string> = {
   "sin-relevamiento": "#EDEDF4",
 }
 
-/*
- * Se calcula fuera del render para mantener el componente puro.
- * La diferencia en días no necesita precisión de horas.
- */
-function daysSince(date: string): number | null {
-  if (!date) return null
+const BORDER_COLOR = "#230C0F"
 
-  const parsedDate = new Date(date)
+function normalizeDepartmentName(
+  value: string | null | undefined,
+) {
+  const normalized = (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/^departamento\s+/i, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/\s+/g, " ")
 
-  if (Number.isNaN(parsedDate.getTime())) {
-    return null
+  const aliases: Record<string, string> = {
+    "gral san martin": "general san martin",
+    "pte roque saenz pena":
+      "presidente roque saenz pena",
   }
 
-  const now = new Date()
+  return aliases[normalized] ?? normalized
+}
 
-  const today = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
+function getDepartmentName(
+  feature: DepartmentFeature,
+) {
+  const properties = feature.properties ?? {}
+
+  const candidates = [
+    properties.nombre,
+    properties.name,
+    properties.departamento,
+    properties.nombre_departamento,
+    properties.nom_depart,
+    properties.dpto,
+  ]
+
+  const name = candidates.find(
+    (value): value is string =>
+      typeof value === "string" &&
+      value.trim().length > 0,
   )
 
-  const evaluationDate = new Date(
-    parsedDate.getFullYear(),
-    parsedDate.getMonth(),
-    parsedDate.getDate(),
-  )
+  return name ?? "Departamento"
+}
 
-  return Math.max(
-    0,
-    Math.floor(
-      (today.getTime() - evaluationDate.getTime()) /
-        86400000,
-    ),
+function getSectionName(feature: SectionFeature) {
+  return String(
+    feature.properties?.NOMBRE ??
+      feature.properties?.NUMERO ??
+      "",
   )
 }
 
-function FitBounds({
-  points,
+/*
+ * Genera una versión exclusivamente visual del GeoJSON
+ * de Capital.
+ *
+ * Se conserva solamente el anillo exterior de cada
+ * polígono para evitar que los pequeños anillos internos
+ * del archivo original aparezcan como líneas sobre el mapa.
+ *
+ * IMPORTANTE:
+ * El GeoJSON original se sigue utilizando para la
+ * asociación espacial de las instituciones.
+ */
+function getSectionDisplayData(
+  data: SectionGeoJSON,
+): SectionGeoJSON {
+  return {
+    type: "FeatureCollection",
+    features: data.features.map((feature) => {
+      if (feature.geometry.type === "Polygon") {
+        const coordinates =
+          feature.geometry.coordinates as unknown[][][]
+
+        return {
+          ...feature,
+          geometry: {
+            ...feature.geometry,
+            coordinates: coordinates.slice(0, 1),
+          },
+        }
+      }
+
+      if (
+        feature.geometry.type === "MultiPolygon"
+      ) {
+        const coordinates =
+          feature.geometry.coordinates as unknown[][][][]
+
+        return {
+          ...feature,
+          geometry: {
+            ...feature.geometry,
+            coordinates: coordinates.map(
+              (polygon) => polygon.slice(0, 1),
+            ),
+          },
+        }
+      }
+
+      return feature
+    }),
+  }
+}
+
+/*
+ * Obtiene un punto que se encuentra dentro de la
+ * geometría de la sección.
+ *
+ * Se utiliza pointOnFeature en lugar del centro del
+ * bounding box, porque algunas secciones tienen formas
+ * irregulares y el centro del bounding box podría quedar
+ * fuera del polígono.
+ */
+function getSectionLabelPosition(
+  feature: SectionFeature,
+) {
+  const point = pointOnFeature(feature as never)
+
+  const [longitude, latitude] =
+    point.geometry.coordinates
+
+  return [latitude, longitude] as [
+    number,
+    number,
+  ]
+}
+
+/*
+ * Formato ordinal de la etiqueta.
+ *
+ * Ejemplos:
+ * 1ª
+ * 2ª
+ * 3ª
+ * ...
+ * 14ª
+ */
+function getOrdinalSectionLabel(number: number) {
+  return `${number}ª`
+}
+
+function getDepartmentColor(
+  stats: DepartmentStats | undefined,
+) {
+  if (!stats || stats.evaluated === 0) {
+    return COLORS["sin-relevamiento"]
+  }
+
+  const score =
+    (stats.counts.alta * 3 +
+      stats.counts.media * 2 +
+      stats.counts.baja) /
+    (stats.evaluated * 3)
+
+  if (score >= 0.66) return COLORS.alta
+  if (score >= 0.33) return COLORS.media
+
+  return COLORS.baja
+}
+
+function getSectionColor(
+  stats: SectionStats | undefined,
+) {
+  if (!stats || stats.evaluated === 0) {
+    return COLORS["sin-relevamiento"]
+  }
+
+  const score =
+    (stats.counts.alta * 3 +
+      stats.counts.media * 2 +
+      stats.counts.baja) /
+    (stats.evaluated * 3)
+
+  if (score >= 0.66) return COLORS.alta
+  if (score >= 0.33) return COLORS.media
+
+  return COLORS.baja
+}
+
+/*
+ * Ajusta el mapa para mostrar completamente el
+ * territorio seleccionado.
+ *
+ * No utiliza coordenadas fijas para departamentos
+ * o circuitos: siempre calcula los límites reales
+ * de la geometría seleccionada.
+ */
+function FitTerritory({
+  departments,
+  sections,
+  territoryFilter,
 }: {
-  points: Array<[number, number]>
+  departments: DepartmentGeoJSON | null
+  sections: SectionGeoJSON | null
+  territoryFilter: string
 }) {
   const map = useMap()
 
   useEffect(() => {
-    if (points.length > 1) {
-      map.fitBounds(points, {
-        padding: [28, 28],
+    map.closePopup()
+
+    if (territoryFilter === "todos") {
+      map.setView([-32.1, -64.2], 7.2)
+      return
+    }
+
+    let feature: DepartmentFeature | SectionFeature | undefined
+
+    if (territoryFilter.startsWith("department:")) {
+      const selectedName = territoryFilter.slice(
+        "department:".length,
+      )
+
+      feature = departments?.features.find(
+        (item) =>
+          normalizeDepartmentName(
+            getDepartmentName(item),
+          ) ===
+          normalizeDepartmentName(selectedName),
+      )
+    }
+
+    if (territoryFilter.startsWith("circuit:")) {
+      const circuitNumber = Number(
+        territoryFilter.slice("circuit:".length),
+      )
+
+      feature = sections?.features.find(
+        (item) =>
+          item.properties?.NUMERO ===
+          circuitNumber,
+      )
+    }
+
+    if (!feature) return
+
+    const bounds = leafletGeoJSON(
+      feature as never,
+    ).getBounds()
+
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, {
+        padding: [30, 30],
       })
     }
-  }, [map, points])
+  }, [
+    map,
+    departments,
+    sections,
+    territoryFilter,
+  ])
 
   return null
 }
 
-function PopupSummary({
-  institution,
-  assessment,
-  evaluations,
+function MapPopupController({
+  territoryFilter,
 }: {
-  institution: Institution
-  assessment: ReturnType<typeof calculateInstitutionAssessment>
-  evaluations: Evaluation[]
+  territoryFilter: string
 }) {
-  const latest = [...evaluations].sort(
-    (a, b) =>
-      b.date.localeCompare(a.date) ||
-      b.version - a.version,
-  )[0]
+  const map = useMap()
 
-  return (
-    <div className="map-popup">
-      <strong>{institution.name}</strong>
+  useEffect(() => {
+    map.closePopup()
+  }, [map, territoryFilter])
 
-      <span
-        className={`criticality-badge ${assessment.criticality}`}
-      >
-        {assessment.criticality === "sin-relevamiento"
-          ? "Pendiente de evaluación"
-          : `Criticidad ${assessment.criticality}`}
-      </span>
-
-      <p>
-        {assessment.lastDate
-          ? (() => {
-              const days = daysSince(assessment.lastDate)
-
-              if (days === null) {
-                return "Último relevamiento: fecha no disponible"
-              }
-
-              if (days === 0) {
-                return "Último relevamiento: hoy"
-              }
-
-              if (days === 1) {
-                return "Último relevamiento: hace 1 día"
-              }
-
-              return `Último relevamiento: hace ${days} días`
-            })()
-          : "Nunca relevada"}
-      </p>
-
-      <p>
-        {assessment.evaluationCount}{" "}
-        {assessment.evaluationCount === 1
-          ? "relevamiento"
-          : "relevamientos"}
-      </p>
-
-      {latest && (
-        <p>
-          Último estado:{" "}
-          {latest.status === "closed"
-            ? "Cerrado"
-            : "En curso"}
-        </p>
-      )}
-    </div>
-  )
+  return null
 }
 
 export function TerritorialMap({
   institutions,
   evaluations,
+  territoryFilter = "todos",
+  onTerritoryFilterChange,
 }: {
   institutions: Institution[]
   evaluations: Evaluation[]
+  territoryFilter?: string
+  onTerritoryFilterChange?: (value: string) => void
 }) {
-  const assessments = useMemo(() => {
-    return institutions
-      .map((institution) => ({
-        institution,
+  const [departments, setDepartments] =
+    useState<DepartmentGeoJSON | null>(null)
 
-        coordinate:
-          institution.latitude !== null &&
-          institution.longitude !== null
-            ? {
-                latitude: institution.latitude,
-                longitude: institution.longitude,
-              }
-            : null,
+  const [sections, setSections] =
+    useState<SectionGeoJSON | null>(null)
 
-        assessment: calculateInstitutionAssessment(
-          institution.id,
-          evaluations,
-        ),
-
-        evaluations: evaluations.filter(
-          (evaluation) =>
-            evaluation.institutionId === institution.id,
-        ),
-      }))
-      .filter((item) => item.coordinate)
-  }, [institutions, evaluations])
-
-  const points = assessments.map(
-    ({ coordinate }) =>
-      [
-        coordinate!.latitude,
-        coordinate!.longitude,
-      ] as [number, number],
+  /*
+   * GeoJSON derivado exclusivamente para la visualización.
+   *
+   * El GeoJSON original se conserva para los cálculos
+   * de point-in-polygon.
+   */
+  const displaySections = useMemo(
+    () =>
+      sections
+        ? getSectionDisplayData(sections)
+        : null,
+    [sections],
   )
+
+  const [geographyError, setGeographyError] =
+    useState(false)
+
+  /*
+   * Cargar departamentos desde IDECOR.
+   */
+  useEffect(() => {
+    let cancelled = false
+
+    fetch("/api/geography/departamentos")
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(
+            "Geography request failed",
+          )
+        }
+
+        return response.json() as Promise<DepartmentGeoJSON>
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setDepartments(data)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGeographyError(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  /*
+   * Cargar los 14 circuitos de Capital
+   * desde el GeoJSON local.
+   */
+  useEffect(() => {
+    let cancelled = false
+
+    fetch(
+      "/data/geography/capital-secciones.geojson",
+    )
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(
+            "Circuits request failed",
+          )
+        }
+
+        return response.json() as Promise<SectionGeoJSON>
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setSections(data)
+        }
+      })
+      .catch((error) => {
+        console.error(
+          "Error cargando circuitos de Capital:",
+          error,
+        )
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  /*
+   * Evaluación de cada institución.
+   */
+  const assessments = useMemo(
+    () =>
+      institutions.map((institution) => ({
+        institution,
+        assessment:
+          calculateInstitutionAssessment(
+            institution.id,
+            evaluations,
+          ),
+      })),
+    [institutions, evaluations],
+  )
+
+  /*
+   * Estadísticas por departamento.
+   */
+  const departmentStats = useMemo(() => {
+    const stats =
+      new Map<string, DepartmentStats>()
+
+    for (const {
+      institution,
+      assessment,
+    } of assessments) {
+      const key = normalizeDepartmentName(
+        institution.departamento,
+      )
+
+      if (!key) continue
+
+      const current =
+        stats.get(key) ?? {
+          total: 0,
+          evaluated: 0,
+          pending: 0,
+          counts: {
+            alta: 0,
+            media: 0,
+            baja: 0,
+            "sin-relevamiento": 0,
+          },
+        }
+
+      current.total += 1
+      current.counts[
+        assessment.criticality
+      ] += 1
+
+      if (
+        assessment.criticality ===
+        "sin-relevamiento"
+      ) {
+        current.pending += 1
+      } else {
+        current.evaluated += 1
+      }
+
+      stats.set(key, current)
+    }
+
+    return stats
+  }, [assessments])
+
+  /*
+   * Estadísticas por circuito de Capital.
+   *
+   * La institución se asocia espacialmente
+   * mediante sus coordenadas geográficas.
+   *
+   * IMPORTANTE:
+   * Se utiliza el GeoJSON original, no displaySections,
+   * para mantener la precisión de la asociación espacial.
+   */
+  const capitalSectionStats = useMemo(() => {
+    if (!sections) {
+      return new Map<number, SectionStats>()
+    }
+
+    const stats =
+      new Map<number, SectionStats>()
+
+    for (const {
+      institution,
+      assessment,
+    } of assessments) {
+      if (
+        normalizeDepartmentName(
+          institution.departamento,
+        ) !== "capital"
+      ) {
+        continue
+      }
+
+      if (
+        institution.latitude === null ||
+        institution.longitude === null
+      ) {
+        continue
+      }
+
+      const latitude = institution.latitude
+      const longitude = institution.longitude
+
+      const section = sections.features.find(
+        (feature) =>
+          booleanPointInPolygon(
+            [longitude, latitude],
+            feature as never,
+          ),
+      )
+
+      if (!section?.properties?.NUMERO) {
+        continue
+      }
+
+      const sectionNumber =
+        section.properties.NUMERO
+
+      const current =
+        stats.get(sectionNumber) ?? {
+          total: 0,
+          evaluated: 0,
+          pending: 0,
+          counts: {
+            alta: 0,
+            media: 0,
+            baja: 0,
+            "sin-relevamiento": 0,
+          },
+        }
+
+      current.total += 1
+      current.counts[
+        assessment.criticality
+      ] += 1
+
+      if (
+        assessment.criticality ===
+        "sin-relevamiento"
+      ) {
+        current.pending += 1
+      } else {
+        current.evaluated += 1
+      }
+
+      stats.set(sectionNumber, current)
+    }
+
+    return stats
+  }, [assessments, sections])
+
+  /*
+   * Diagnóstico de desarrollo.
+   */
+  useEffect(() => {
+    if (!sections) return
+
+    console.table(
+      Array.from(
+        { length: 14 },
+        (_, index) => {
+          const circuit = index + 1
+
+          const stats =
+            capitalSectionStats.get(
+              circuit,
+            )
+
+          return {
+            circuito: circuit,
+            instituciones:
+              stats?.total ?? 0,
+            relevadas:
+              stats?.evaluated ?? 0,
+            pendientes:
+              stats?.pending ?? 0,
+            alta:
+              stats?.counts.alta ?? 0,
+            media:
+              stats?.counts.media ?? 0,
+            baja:
+              stats?.counts.baja ?? 0,
+          }
+        },
+      ),
+    )
+  }, [sections, capitalSectionStats])
+
+  /*
+   * Estilo de departamentos.
+   */
+  const styleDepartment = (
+    feature?: DepartmentFeature,
+  ) => {
+    const name = feature
+      ? getDepartmentName(feature)
+      : ""
+
+    const stats =
+      departmentStats.get(
+        normalizeDepartmentName(name),
+      )
+
+    return {
+      color: BORDER_COLOR,
+      weight: 1,
+      fillColor: getDepartmentColor(stats),
+      fillOpacity: stats?.evaluated
+        ? 0.68
+        : 0.3,
+    }
+  }
+
+  /*
+   * Popup de departamento.
+   */
+  const handleDepartment = (
+    feature: DepartmentFeature,
+    layer: Layer,
+  ) => {
+    const name = getDepartmentName(feature)
+
+    const normalizedName =
+      normalizeDepartmentName(name)
+
+    const stats =
+      departmentStats.get(normalizedName)
+
+    /*
+     * Capital tiene comportamiento especial:
+     * al hacer click se ingresa directamente
+     * al nivel de los 14 circuitos.
+     */
+    if (normalizedName === "capital") {
+      layer.bindPopup(`
+        <div class="map-popup">
+          <strong>${name}</strong>
+
+          ${
+            stats
+              ? `
+                <p>${stats.total} instituciones</p>
+                <p>${stats.evaluated} con relevamiento</p>
+                <p>${stats.pending} pendientes</p>
+                <p>Alta: ${stats.counts.alta}</p>
+                <p>Media: ${stats.counts.media}</p>
+                <p>Baja: ${stats.counts.baja}</p>
+              `
+              : "<p>Sin instituciones asociadas.</p>"
+          }
+
+          <p class="map-popup-hint">
+            Explorando los 14 circuitos de Capital.
+          </p>
+        </div>
+      `)
+
+      layer.on("click", () => {
+        layer.closePopup()
+        onTerritoryFilterChange?.(
+          "department:Capital",
+        )
+      })
+
+      return
+    }
+
+    layer.on("click", () => {
+      onTerritoryFilterChange?.(
+        `department:${name}`,
+      )
+    })
+
+    layer.bindPopup(
+      stats
+        ? `
+          <div class="map-popup">
+            <strong>${name}</strong>
+            <p>${stats.total} instituciones</p>
+            <p>${stats.evaluated} con relevamiento</p>
+            <p>${stats.pending} pendientes</p>
+            <p>Alta: ${stats.counts.alta}</p>
+            <p>Media: ${stats.counts.media}</p>
+            <p>Baja: ${stats.counts.baja}</p>
+          </div>
+        `
+        : `
+          <div class="map-popup">
+            <strong>${name}</strong>
+            <p>Sin instituciones asociadas.</p>
+          </div>
+        `,
+    )
+  }
+
+  /*
+   * Estilo de los circuitos.
+   */
+  const styleSection = (
+    feature?: SectionFeature,
+  ) => {
+    const sectionNumber =
+      feature?.properties?.NUMERO
+
+    const stats = sectionNumber
+      ? capitalSectionStats.get(
+          sectionNumber,
+        )
+      : undefined
+
+    return {
+      color: BORDER_COLOR,
+      weight: 1.5,
+      fillColor: getSectionColor(stats),
+      fillOpacity: stats?.evaluated
+        ? 0.72
+        : 0.35,
+    }
+  }
+
+  /*
+   * Popup de circuito.
+   */
+  const handleSection = (
+    feature: SectionFeature,
+    layer: Layer,
+  ) => {
+    const sectionNumber =
+      feature.properties?.NUMERO
+
+    const name = getSectionName(feature)
+
+    const stats = sectionNumber
+      ? capitalSectionStats.get(
+          sectionNumber,
+        )
+      : undefined
+
+    layer.on("click", () => {
+      if (typeof sectionNumber === "number") {
+        onTerritoryFilterChange?.(
+          `circuit:${sectionNumber}`,
+        )
+      }
+    })
+
+    layer.bindPopup(
+      stats
+        ? `
+          <div class="map-popup">
+            <strong>Circuito ${name}</strong>
+            <p>${stats.total} instituciones</p>
+            <p>${stats.evaluated} con relevamiento</p>
+            <p>${stats.pending} pendientes</p>
+            <p>Alta: ${stats.counts.alta}</p>
+            <p>Media: ${stats.counts.media}</p>
+            <p>Baja: ${stats.counts.baja}</p>
+          </div>
+        `
+        : `
+          <div class="map-popup">
+            <strong>Circuito ${name}</strong>
+            <p>Sin instituciones asociadas.</p>
+          </div>
+        `,
+    )
+  }
 
   return (
     <div className="territorial-map">
       <MapContainer
-        center={[-31.413, -64.198]}
-        zoom={14}
+        center={[-32.1, -64.2]}
+        zoom={7.2}
         scrollWheelZoom={false}
         className="territorial-map-canvas"
       >
@@ -201,44 +832,239 @@ export function TerritorialMap({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        <FitBounds points={points} />
+        <MapPopupController
+          territoryFilter={territoryFilter}
+        />
 
-        {assessments.map(
-          ({
-            institution,
-            coordinate,
-            assessment,
-            evaluations: institutionEvaluations,
-          }) => (
-            <CircleMarker
-              key={institution.id}
-              center={[
-                coordinate!.latitude,
-                coordinate!.longitude,
-              ]}
-              radius={9}
-              pathOptions={{
-                color:
-                  assessment.criticality === "media"
-                    ? "#230C0F"
-                    : COLORS[assessment.criticality],
-                fillColor:
-                  COLORS[assessment.criticality],
-                fillOpacity: 0.9,
-                weight: 2,
-              }}
-            >
-              <Popup>
-                <PopupSummary
-                  institution={institution}
-                  assessment={assessment}
-                  evaluations={institutionEvaluations}
-                />
-              </Popup>
-            </CircleMarker>
-          ),
-        )}
+        <FitTerritory
+          departments={departments}
+          sections={sections}
+          territoryFilter={territoryFilter}
+        />
+
+        {/*
+         * Vista provincial:
+         * - toda la provincia: 26 departamentos;
+         * - departamento seleccionado: solamente
+         *   el polígono completo seleccionado.
+         */}
+        {departments &&
+          !territoryFilter.startsWith("circuit:") &&
+          !(
+            territoryFilter === "department:Capital"
+          ) && (
+            <LeafletGeoJSON
+              key={`department-${territoryFilter}`}
+              data={
+                territoryFilter === "todos"
+                  ? (departments as never)
+                  : ({
+                      type: "FeatureCollection",
+                      features:
+                        departments.features.filter(
+                          (feature) =>
+                            normalizeDepartmentName(
+                              getDepartmentName(
+                                feature,
+                              ),
+                            ) ===
+                            normalizeDepartmentName(
+                              territoryFilter.replace(
+                                "department:",
+                                "",
+                              ),
+                            ),
+                        ),
+                    } as never)
+              }
+              style={(feature) =>
+                styleDepartment(
+                  feature as DepartmentFeature,
+                )
+              }
+              onEachFeature={(
+                feature,
+                layer,
+              ) =>
+                handleDepartment(
+                  feature as DepartmentFeature,
+                  layer,
+                )
+              }
+            />
+          )}
+
+        {/*
+         * Capital:
+         * - department:Capital muestra los 14 circuitos;
+         * - circuit:N muestra solamente el polígono
+         *   completo del circuito seleccionado.
+         */}
+        {sections &&
+          (territoryFilter ===
+            "department:Capital" ||
+            territoryFilter.startsWith(
+              "circuit:",
+            )) && (
+            <>
+              <LeafletGeoJSON
+                key={`capital-${territoryFilter}`}
+                data={
+                  territoryFilter ===
+                  "department:Capital"
+                    ? (displaySections as never)
+                    : ({
+                        type: "FeatureCollection",
+                        features:
+                          displaySections?.features.filter(
+                            (feature) =>
+                              feature.properties
+                                ?.NUMERO ===
+                              Number(
+                                territoryFilter.slice(
+                                  "circuit:".length,
+                                ),
+                              ),
+                          ) ?? [],
+                      } as never)
+                }
+                style={(feature) =>
+                  styleSection(
+                    feature as SectionFeature,
+                  )
+                }
+                onEachFeature={(
+                  feature,
+                  layer,
+                ) =>
+                  handleSection(
+                    feature as SectionFeature,
+                    layer,
+                  )
+                }
+              />
+
+              {/*
+               * Etiquetas de los circuitos.
+               * En una selección individual solamente
+               * se etiqueta el circuito seleccionado.
+               */}
+              {displaySections &&
+                displaySections.features
+                  .filter((feature) => {
+                    if (
+                      territoryFilter ===
+                      "department:Capital"
+                    ) {
+                      return true
+                    }
+
+                    return (
+                      feature.properties?.NUMERO ===
+                      Number(
+                        territoryFilter.slice(
+                          "circuit:".length,
+                        ),
+                      )
+                    )
+                  })
+                  .map((feature) => {
+                    const number =
+                      feature.properties?.NUMERO
+
+                    if (
+                      typeof number !== "number"
+                    ) {
+                      return null
+                    }
+
+                    const position =
+                      getSectionLabelPosition(
+                        feature,
+                      )
+
+                    return (
+                      <Marker
+                        key={`circuit-label-${number}`}
+                        position={position}
+                        interactive={false}
+                        icon={divIcon({
+                          className:
+                            "territorial-section-label",
+                          html: `
+                            <span>
+                              ${getOrdinalSectionLabel(
+                                number,
+                              )}
+                            </span>
+                          `,
+                          iconSize: [30, 24],
+                          iconAnchor: [15, 12],
+                        })}
+                      />
+                    )
+                  })}
+            </>
+          )}
+
       </MapContainer>
+
+      {/*
+       * Navegación cuando se está dentro de Capital
+       * o de un circuito individual.
+       */}
+      {(territoryFilter === "department:Capital" ||
+        territoryFilter.startsWith(
+          "circuit:",
+        )) && (
+        <button
+          type="button"
+          className="territorial-map-back"
+          onClick={() => {
+            if (
+              territoryFilter.startsWith(
+                "circuit:",
+              )
+            ) {
+              onTerritoryFilterChange?.(
+                "department:Capital",
+              )
+              return
+            }
+
+            onTerritoryFilterChange?.("todos")
+          }}
+        >
+          {territoryFilter.startsWith("circuit:")
+            ? "← Volver a circuitos"
+            : "← Volver a departamentos"}
+        </button>
+      )}
+
+      {!departments &&
+        !geographyError && (
+          <p className="map-note">
+            Cargando límites departamentales...
+          </p>
+        )}
+
+      {geographyError && (
+        <p className="map-note">
+          No se pudieron cargar los límites
+          departamentales.
+        </p>
+      )}
+
+      {(territoryFilter ===
+        "department:Capital" ||
+        territoryFilter.startsWith(
+          "circuit:",
+        )) &&
+        !sections && (
+          <p className="map-note">
+            Cargando circuitos de Capital...
+          </p>
+        )}
     </div>
   )
 }
