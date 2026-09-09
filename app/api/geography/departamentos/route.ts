@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server"
 
 const IDECOR_DEPARTMENTS_URL =
-  "https://idecor-ws.mapascordoba.gob.ar/geoserver/idecor/wfs/json?typeName=idecor:departamentos&request=GetFeature&service=WFS&version=1.0.0"
+  "https://idecor-ws.mapascordoba.gob.ar/geoserver/idecor/wfs?service=WFS&version=1.0.0&request=GetFeature&typeName=idecor:departamentos&srsName=EPSG:4326&outputFormat=application/json"
 
-export const revalidate = 86400
+export const dynamic = "force-dynamic"
 
 export async function GET() {
   try {
     const response = await fetch(IDECOR_DEPARTMENTS_URL, {
-      next: { revalidate: 86400 },
+      cache: "no-store",
     })
 
     if (!response.ok) {
@@ -22,7 +22,8 @@ export async function GET() {
 
     return NextResponse.json(data, {
       headers: {
-        "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
+        "Cache-Control":
+          "public, s-maxage=86400, stale-while-revalidate=604800",
       },
     })
   } catch {

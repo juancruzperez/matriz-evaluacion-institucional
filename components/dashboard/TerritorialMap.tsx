@@ -37,12 +37,21 @@ const COLORS: Record<Criticality, string> = {
 const BORDER_COLOR = "#230C0F"
 
 function normalizeDepartmentName(value: string | null | undefined) {
-  return (value ?? "")
+  const normalized = (value ?? "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/^departamento\s+/i, "")
     .trim()
     .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/\s+/g, " ")
+
+  const aliases: Record<string, string> = {
+    "gral san martin": "general san martin",
+    "pte roque saenz pena": "presidente roque saenz pena",
+  }
+
+  return aliases[normalized] ?? normalized
 }
 
 function getDepartmentName(feature: DepartmentFeature) {
