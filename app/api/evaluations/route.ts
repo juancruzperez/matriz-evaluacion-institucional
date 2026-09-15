@@ -191,57 +191,131 @@ export async function GET() {
     )
   }
 
-  const rows = (await sql`
-    SELECT
-      e.id,
-      e.version,
-      e.status,
-      e.institution_id,
-      e.institution_level_id,
-      e.date,
-      e.management_team_present,
-      e.management_team_contact,
-      e.created_by,
-      e.updated_by,
-      e.created_at,
-      e.updated_at,
-      e.closed_at,
-      COALESCE(
-        json_agg(
-          json_build_object(
-            'id', er.id,
-            'evaluationId', er.evaluation_id,
-            'indicatorId', er.indicator_id,
-            'observation', er.observation,
-            'urgency', er.urgency,
-            'strengths', er.strengths,
-            'fields', er.fields
-          )
-          ORDER BY er.indicator_id
-        ) FILTER (WHERE er.id IS NOT NULL),
-        '[]'::json
-      ) AS responses
-    FROM evaluations e
-    LEFT JOIN evaluation_responses er
-      ON er.evaluation_id = e.id
-    GROUP BY
-      e.id,
-      e.version,
-      e.status,
-      e.institution_id,
-      e.institution_level_id,
-      e.date,
-      e.management_team_present,
-      e.management_team_contact,
-      e.created_by,
-      e.updated_by,
-      e.created_at,
-      e.updated_at,
-      e.closed_at
-    ORDER BY e.updated_at DESC
-  `) as EvaluationRow[]
+  const roleId = authorization.session.user.roleId
+  const departamento =
+    authorization.session.user.departamento
 
-  const evaluations = rows.map(
+  /*
+   * Para responsables territoriales:
+   *
+   * - si no tienen departamento asignado,
+   *   no reciben evaluaciones;
+   * - si tienen departamento,
+   *   solamente reciben evaluaciones de
+   *   instituciones pertenecientes a ese departamento.
+   *
+   * Los demás roles mantienen acceso a todas
+   * las evaluaciones permitidas por su permiso.
+   */
+  const rows =
+    roleId === "responsable_territorial"
+      ? departamento
+        ? await sql`
+            SELECT
+              e.id,
+              e.version,
+              e.status,
+              e.institution_id,
+              e.institution_level_id,
+              e.date,
+              e.management_team_present,
+              e.management_team_contact,
+              e.created_by,
+              e.updated_by,
+              e.created_at,
+              e.updated_at,
+              e.closed_at,
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'id', er.id,
+                    'evaluationId', er.evaluation_id,
+                    'indicatorId', er.indicator_id,
+                    'observation', er.observation,
+                    'urgency', er.urgency,
+                    'strengths', er.strengths,
+                    'fields', er.fields
+                  )
+                  ORDER BY er.indicator_id
+                ) FILTER (WHERE er.id IS NOT NULL),
+                '[]'::json
+              ) AS responses
+            FROM evaluations e
+            INNER JOIN institutions i
+              ON i.id = e.institution_id
+            LEFT JOIN evaluation_responses er
+              ON er.evaluation_id = e.id
+            WHERE i.departamento = ${departamento}
+            GROUP BY
+              e.id,
+              e.version,
+              e.status,
+              e.institution_id,
+              e.institution_level_id,
+              e.date,
+              e.management_team_present,
+              e.management_team_contact,
+              e.created_by,
+              e.updated_by,
+              e.created_at,
+              e.updated_at,
+              e.closed_at
+            ORDER BY e.updated_at DESC
+          `
+        : []
+      : await sql`
+          SELECT
+            e.id,
+            e.version,
+            e.status,
+            e.institution_id,
+            e.institution_level_id,
+            e.date,
+            e.management_team_present,
+            e.management_team_contact,
+            e.created_by,
+            e.updated_by,
+            e.created_at,
+            e.updated_at,
+            e.closed_at,
+            COALESCE(
+              json_agg(
+                json_build_object(
+                  'id', er.id,
+                  'evaluationId', er.evaluation_id,
+                  'indicatorId', er.indicator_id,
+                  'observation', er.observation,
+                  'urgency', er.urgency,
+                  'strengths', er.strengths,
+                  'fields', er.fields
+                )
+                ORDER BY er.indicator_id
+              ) FILTER (WHERE er.id IS NOT NULL),
+              '[]'::json
+            ) AS responses
+          FROM evaluations e
+          LEFT JOIN evaluation_responses er
+            ON er.evaluation_id = e.id
+          GROUP BY
+            e.id,
+            e.version,
+            e.status,
+            e.institution_id,
+            e.institution_level_id,
+            e.date,
+            e.management_team_present,
+            e.management_team_contact,
+            e.created_by,
+            e.updated_by,
+            e.created_at,
+            e.updated_at,
+            e.closed_at
+          ORDER BY e.updated_at DESC
+        `
+
+  const typedRows = rows as EvaluationRow[]
+
+  const evaluations = typedRows.map(
     (row) =>
       ({
         id: row.id,
@@ -305,6 +379,47 @@ export async function POST(request: Request) {
       },
       { status: 400 },
     )
+  }
+
+  const roleId = authorization.session.user.roleId
+  const departamento =
+    authorization.session.user.departamento
+
+  /*
+   * Seguridad territorial del POST:
+   *
+   * Un responsable territorial solamente puede
+   * crear relevamientos para instituciones de
+   * su departamento.
+   */
+  if (roleId === "responsable_territorial") {
+    if (!departamento) {
+      return Response.json(
+        {
+          error:
+            "El responsable territorial no tiene un departamento asignado.",
+        },
+        { status: 403 },
+      )
+    }
+
+    const institutionRows = (await sql`
+      SELECT id
+      FROM institutions
+      WHERE id = ${body.institutionId}
+        AND departamento = ${departamento}
+      LIMIT 1
+    `) as { id: string }[]
+
+    if (institutionRows.length === 0) {
+      return Response.json(
+        {
+          error:
+            "No tiene permisos para crear un relevamiento en esta institución.",
+        },
+        { status: 403 },
+      )
+    }
   }
 
   const evaluationId = crypto.randomUUID()
@@ -388,33 +503,33 @@ export async function POST(request: Request) {
     }
 
     if (
-  error &&
-  typeof error === "object" &&
-  "code" in error &&
-  error.code === "23505" &&
-  "constraint" in error &&
-  error.constraint ===
-    "evaluations_one_open_per_institution_idx"
-) {
-  const openRows = (await sql`
-    SELECT id
-    FROM evaluations
-    WHERE institution_id = ${body.institutionId}
-      AND status = 'draft'
-    ORDER BY created_at DESC
-    LIMIT 1
-  `) as { id: string }[]
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "23505" &&
+      "constraint" in error &&
+      error.constraint ===
+        "evaluations_one_open_per_institution_idx"
+    ) {
+      const openRows = (await sql`
+        SELECT id
+        FROM evaluations
+        WHERE institution_id = ${body.institutionId}
+          AND status = 'draft'
+        ORDER BY created_at DESC
+        LIMIT 1
+      `) as { id: string }[]
 
-  return Response.json(
-    {
-      error:
-        "La institución ya tiene un relevamiento abierto.",
-      evaluationId:
-        openRows[0]?.id ?? null,
-    },
-    { status: 409 },
-  )
-}
+      return Response.json(
+        {
+          error:
+            "La institución ya tiene un relevamiento abierto.",
+          evaluationId:
+            openRows[0]?.id ?? null,
+        },
+        { status: 409 },
+      )
+    }
 
     return Response.json(
       {
@@ -480,7 +595,8 @@ export async function POST(request: Request) {
   if (!row) {
     return Response.json(
       {
-        error: "Evaluation created but could not be loaded",
+        error:
+          "Evaluation created but could not be loaded",
       },
       { status: 500 },
     )
