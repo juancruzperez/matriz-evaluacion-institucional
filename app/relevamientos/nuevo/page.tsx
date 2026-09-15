@@ -416,7 +416,20 @@ const [isSaving, setIsSaving] =
   async function handleInstitutionChange(
   selected: Institution | null,
 ) {
-  if (!selected || readOnly) {
+  if (readOnly) {
+    return
+  }
+
+  if (!selected) {
+    setEvaluation((current) => ({
+      ...current,
+      institutionId: "",
+      institutionLevelId: null,
+    }))
+
+    setPersisted(false)
+    setLoadError(null)
+
     return
   }
 
@@ -435,13 +448,15 @@ const [isSaving, setIsSaving] =
       )
     }
 
-    const evaluations = data as Evaluation[]
+    const evaluations =
+      data as Evaluation[]
 
-    const openEvaluation = evaluations.find(
-      (item) =>
-        item.institutionId === selected.id &&
-        item.status !== "closed",
-    )
+    const openEvaluation =
+      evaluations.find(
+        (item) =>
+          item.institutionId === selected.id &&
+          item.status !== "closed",
+      )
 
     if (openEvaluation) {
       setRedirectingToOpenEvaluation(true)
@@ -457,6 +472,7 @@ const [isSaving, setIsSaving] =
       ...current,
       institutionId: selected.id,
       institutionLevelId: null,
+      status: "draft",
     }))
 
     setPersisted(false)
@@ -484,7 +500,11 @@ const [isSaving, setIsSaving] =
         evaluation.institutionId,
     ) ?? null
 
-  const isClosed =
+  const evaluationId =
+  searchParams.get("evaluation")
+
+const isClosed =
+  Boolean(evaluationId) &&
   evaluation.status === "closed"
 
 const isInstitutionalReadOnly =
@@ -1563,6 +1583,26 @@ if (
   )
 }
 
+function NewEvaluationPageContent() {
+  const searchParams = useSearchParams()
+
+  const evaluationId =
+    searchParams.get("evaluation")
+
+  const institutionId =
+    searchParams.get("institution")
+
+  const formKey = evaluationId
+    ? `evaluation:${evaluationId}`
+    : institutionId
+      ? `institution:${institutionId}`
+      : "new"
+
+  return (
+    <NewEvaluationContent key={formKey} />
+  )
+}
+
 export default function NewEvaluationPage() {
   return (
     <Suspense
@@ -1572,7 +1612,7 @@ export default function NewEvaluationPage() {
         </div>
       }
     >
-      <NewEvaluationContent />
+      <NewEvaluationPageContent />
     </Suspense>
   )
 }
