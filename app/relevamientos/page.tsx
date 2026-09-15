@@ -49,12 +49,6 @@ const CRITICALITY_COLORS: Record<Criticality, string> = {
   "sin-relevamiento": "#C1B8C8",
 }
 
-const CRITICALITY_LABELS: Record<Criticality, string> = {
-  alta: "Alta",
-  media: "Media",
-  baja: "Baja",
-  "sin-relevamiento": "Sin criticidad registrada",
-}
 
 function normalizeDepartmentName(
   value: string | null | undefined,

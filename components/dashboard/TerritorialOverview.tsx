@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { booleanPointInPolygon } from "@turf/boolean-point-in-polygon"
+
 import type { Institution } from "@/types/institution"
 import {
   calculateInstitutionAssessment,
-  calculateTerritorialAssessment
+  type Criticality,
 } from "@/lib/criticality"
 import type { Evaluation } from "@/types/evaluation"
+
 import { CriticalityDonut } from "./CriticalityDonut"
 import { TerritorialMap } from "./TerritorialMap"
 
@@ -15,6 +17,8 @@ type TerritorialOverviewProps = {
   institutions: Institution[]
   evaluations: Evaluation[]
   loading?: boolean
+  isTerritorialResponsible?: boolean
+  territorialDepartment?: string | null
 }
 
 type DepartmentFeature = {
@@ -58,7 +62,8 @@ function normalizeDepartmentName(
     .replace(/\s+/g, " ")
 
   const aliases: Record<string, string> = {
-    "gral san martin": "general san martin",
+    "gral san martin":
+      "general san martin",
     "pte roque saenz pena":
       "presidente roque saenz pena",
   }
@@ -69,7 +74,8 @@ function normalizeDepartmentName(
 function getDepartmentName(
   feature: DepartmentFeature,
 ) {
-  const properties = feature.properties ?? {}
+  const properties =
+    feature.properties ?? {}
 
   const candidates = [
     properties.nombre,
@@ -99,7 +105,18 @@ export function TerritorialOverview({
   institutions,
   evaluations,
   loading = false,
+  isTerritorialResponsible = false,
+  territorialDepartment = null,
 }: TerritorialOverviewProps) {
+  /*
+   * El estado local se utiliza para los usuarios que pueden
+   * seleccionar libremente el territorio.
+   *
+   * Para un responsable territorial no dependemos de un estado
+   * inicial, porque la sesión puede llegar después del primer
+   * render. En ese caso el territorio efectivo se deriva
+   * directamente de territorialDepartment.
+   */
   const [territoryFilter, setTerritoryFilter] =
     useState("todos")
 
@@ -108,6 +125,24 @@ export function TerritorialOverview({
 
   const [sections, setSections] =
     useState<SectionGeoJSON | null>(null)
+
+  /*
+   * Filtro efectivo:
+   *
+   * - Responsable territorial:
+   *   siempre su departamento.
+   *
+   * - Otros usuarios:
+   *   utilizan el selector normalmente.
+   *
+   * Esto evita depender de un useEffect para actualizar
+   * territoryFilter cuando llega la sesión.
+   */
+  const effectiveTerritoryFilter =
+    isTerritorialResponsible &&
+    territorialDepartment
+      ? `department:${territorialDepartment}`
+      : territoryFilter
 
   useEffect(() => {
     let cancelled = false
@@ -134,7 +169,9 @@ export function TerritorialOverview({
         )
       })
 
-    fetch("/data/geography/capital-secciones.geojson")
+    fetch(
+      "/data/geography/capital-secciones.geojson",
+    )
       .then((response) => {
         if (!response.ok) {
           throw new Error(
@@ -179,16 +216,24 @@ export function TerritorialOverview({
   }, [departments])
 
   const filteredInstitutions = useMemo(() => {
-    if (territoryFilter === "todos") {
+    if (effectiveTerritoryFilter === "todos") {
       return institutions
     }
 
-    if (territoryFilter.startsWith("department:")) {
+    if (
+      effectiveTerritoryFilter.startsWith(
+        "department:",
+      )
+    ) {
       const departmentName =
-        territoryFilter.slice("department:".length)
+        effectiveTerritoryFilter.slice(
+          "department:".length,
+        )
 
       const normalizedSelected =
-        normalizeDepartmentName(departmentName)
+        normalizeDepartmentName(
+          departmentName,
+        )
 
       return institutions.filter(
         (institution) =>
@@ -198,9 +243,13 @@ export function TerritorialOverview({
       )
     }
 
-    if (territoryFilter.startsWith("circuit:")) {
+    if (
+      effectiveTerritoryFilter.startsWith("circuit:")
+    ) {
       const circuitNumber = Number(
-        territoryFilter.slice("circuit:".length),
+        effectiveTerritoryFilter.slice(
+          "circuit:".length,
+        ),
       )
 
       if (
@@ -220,49 +269,41 @@ export function TerritorialOverview({
         return []
       }
 
-      return institutions.filter((institution) => {
-        if (
-          normalizeDepartmentName(
-            institution.departamento,
-          ) !== "capital"
-        ) {
-          return false
-        }
+      return institutions.filter(
+        (institution) => {
+          if (
+            normalizeDepartmentName(
+              institution.departamento,
+            ) !== "capital"
+          ) {
+            return false
+          }
 
-        if (
-          institution.latitude === null ||
-          institution.longitude === null
-        ) {
-          return false
-        }
+          if (
+            institution.latitude === null ||
+            institution.longitude === null
+          ) {
+            return false
+          }
 
-        return booleanPointInPolygon(
-          [
-            institution.longitude,
-            institution.latitude,
-          ],
-          section as never,
-        )
-      })
+          return booleanPointInPolygon(
+            [
+              institution.longitude,
+              institution.latitude,
+            ],
+            section as never,
+          )
+        },
+      )
     }
 
     return institutions
   }, [
     institutions,
     sections,
-    territoryFilter,
+    effectiveTerritoryFilter,
   ])
 
-  /*
-   * Criticidad individual.
-   *
-   * Se mantiene porque TerritorialMap necesita
-   * conocer la situación de cada institución
-   * cuando entramos en el detalle de un departamento.
-   *
-   * La regla de cálculo está centralizada en
-   * lib/criticality.ts.
-   */
   const assessments = useMemo(
     () =>
       filteredInstitutions.map(
@@ -272,80 +313,58 @@ export function TerritorialOverview({
             evaluations,
           ),
       ),
-    [filteredInstitutions, evaluations],
+    [
+      filteredInstitutions,
+      evaluations,
+    ],
   )
 
-  /*
-   * Criticidad acumulada del territorio.
-   *
-   * Este cálculo es diferente de la criticidad
-   * individual de cada institución.
-   *
-   * calculateTerritorialAssessment:
-   * - toma todas las instituciones contenidas
-   *   en el territorio seleccionado;
-   * - considera únicamente instituciones con
-   *   relevamiento cerrado;
-   * - no utiliza instituciones pendientes para
-   *   diluir el resultado;
-   * - calcula el score acumulado sobre las
-   *   instituciones relevadas.
-   */
-  const territorialAssessment = useMemo(
-    () =>
-      calculateTerritorialAssessment(
-        filteredInstitutions,
-        evaluations,
-      ),
-    [filteredInstitutions, evaluations],
-  )
-
-  /*
-   * La distribución que acompaña al territorio
-   * utiliza exclusivamente instituciones relevadas.
-   *
-   * Las instituciones pendientes se mantienen como
-   * referencia para mostrar cuántas todavía no
-   * participan del cálculo territorial.
-   */
   const counts = useMemo(
-    () => ({
-      alta: territorialAssessment.high,
-      media: territorialAssessment.medium,
-      baja: territorialAssessment.low,
-      "sin-relevamiento":
-        territorialAssessment.pendingInstitutions,
-    }),
-    [territorialAssessment],
-  )
+    () =>
+      assessments.reduce(
+        (acc, item) => {
+          acc[item.criticality] += 1
 
-  /*
-   * Evitamos que TypeScript considere assessments
-   * como una variable sin uso en futuras extensiones
-   * del componente y dejamos explícita la separación
-   * entre cálculo individual y cálculo territorial.
-   */
-  void assessments
+          return acc
+        },
+        {
+          alta: 0,
+          media: 0,
+          baja: 0,
+          "sin-relevamiento": 0,
+        } as Record<
+          Criticality,
+          number
+        >,
+      ),
+    [assessments],
+  )
 
   const selectedLabel = useMemo(() => {
-    if (territoryFilter === "todos") {
+    if (effectiveTerritoryFilter === "todos") {
       return "Toda la provincia"
     }
 
-    if (territoryFilter.startsWith("department:")) {
-      return territoryFilter.slice(
+    if (
+      effectiveTerritoryFilter.startsWith(
+        "department:",
+      )
+    ) {
+      return effectiveTerritoryFilter.slice(
         "department:".length,
       )
     }
 
-    if (territoryFilter.startsWith("circuit:")) {
-      return `Capital — Circuito ${territoryFilter.slice(
+    if (
+      effectiveTerritoryFilter.startsWith("circuit:")
+    ) {
+      return `Capital — Circuito ${effectiveTerritoryFilter.slice(
         "circuit:".length,
       )}`
     }
 
     return "Toda la provincia"
-  }, [territoryFilter])
+  }, [effectiveTerritoryFilter])
 
   if (loading) {
     return (
@@ -376,64 +395,70 @@ export function TerritorialOverview({
           </span>
         </div>
 
-        <div
-          className="dashboard-territory-filter"
-          aria-label="Filtrar por departamento o circuito"
-        >
-          <label
-            className="institution-filter-field"
-            htmlFor="dashboard-territory-filter"
+        {!isTerritorialResponsible && (
+          <div
+            className="dashboard-territory-filter"
+            aria-label="Filtrar por departamento o circuito"
           >
-            <span>Departamento</span>
-
-            <select
-              id="dashboard-territory-filter"
-              value={territoryFilter}
-              onChange={(event) =>
-                setTerritoryFilter(event.target.value)
-              }
+            <label
+              className="institution-filter-field"
+              htmlFor="dashboard-territory-filter"
             >
-              <option value="todos">
-                Toda la provincia
-              </option>
+              <span>Departamento</span>
 
-              <optgroup label="Departamentos">
-                <option value="department:Capital">
-                  Capital
+              <select
+                id="dashboard-territory-filter"
+                value={territoryFilter}
+                onChange={(event) =>
+                  setTerritoryFilter(
+                    event.target.value,
+                  )
+                }
+              >
+                <option value="todos">
+                  Toda la provincia
                 </option>
 
-                {departmentOptions.map(
-                  (department) => (
-                    <option
-                      key={department}
-                      value={`department:${department}`}
-                    >
-                      {department}
-                    </option>
-                  ),
-                )}
-              </optgroup>
+                <optgroup label="Departamentos">
+                  <option value="department:Capital">
+                    Capital
+                  </option>
 
-              <optgroup label="Capital — Circuitos">
-                {Array.from(
-                  { length: 14 },
-                  (_, index) => {
-                    const circuit = index + 1
-
-                    return (
+                  {departmentOptions.map(
+                    (department) => (
                       <option
-                        key={circuit}
-                        value={`circuit:${circuit}`}
+                        key={department}
+                        value={`department:${department}`}
                       >
-                        Capital — Circuito {circuit}
+                        {department}
                       </option>
-                    )
-                  },
-                )}
-              </optgroup>
-            </select>
-          </label>
-        </div>
+                    ),
+                  )}
+                </optgroup>
+
+                <optgroup label="Capital — Circuitos">
+                  {Array.from(
+                    { length: 14 },
+                    (_, index) => {
+                      const circuit =
+                        index + 1
+
+                      return (
+                        <option
+                          key={circuit}
+                          value={`circuit:${circuit}`}
+                        >
+                          Capital — Circuito{" "}
+                          {circuit}
+                        </option>
+                      )
+                    },
+                  )}
+                </optgroup>
+              </select>
+            </label>
+          </div>
+        )}
 
         <CriticalityDonut counts={counts} />
       </section>
@@ -458,17 +483,18 @@ export function TerritorialOverview({
         <TerritorialMap
           institutions={filteredInstitutions}
           evaluations={evaluations}
-          territoryFilter={territoryFilter}
+          territoryFilter={effectiveTerritoryFilter}
           onTerritoryFilterChange={
             setTerritoryFilter
           }
         />
 
         <p className="map-note">
-          Cada polígono representa un departamento.
-          En Capital se muestran sus 14 circuitos.
-          Al seleccionar un territorio se muestra
-          su superficie geográfica completa.
+          Cada polígono representa un
+          departamento. En Capital se muestran
+          sus 14 circuitos. Al seleccionar un
+          territorio se muestra su superficie
+          geográfica completa.
         </p>
       </section>
     </>

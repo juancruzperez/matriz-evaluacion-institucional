@@ -1,6 +1,5 @@
 import type { DefaultSession } from "next-auth"
 import type { DefaultJWT } from "next-auth/jwt"
-
 import type { Permission } from "@/types/permission"
 import type { RoleId } from "@/types/role"
 
@@ -10,6 +9,7 @@ declare module "next-auth" {
       id: string
       roleId: RoleId
       permissions: Permission[]
+      departamento: string | null
     } & DefaultSession["user"]
   }
 
@@ -17,6 +17,7 @@ declare module "next-auth" {
     id: string
     roleId: RoleId
     permissions: Permission[]
+    departamento: string | null
   }
 }
 
@@ -25,5 +26,6 @@ declare module "next-auth/jwt" {
     userId?: string
     roleId?: RoleId
     permissions?: Permission[]
+    departamento?: string | null
   }
 }

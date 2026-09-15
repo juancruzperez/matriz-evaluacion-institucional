@@ -45,6 +45,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       user.id = resolvedUser.id
       user.roleId = authorization.roleId
       user.permissions = authorization.permissions
+      user.departamento = resolvedUser.departamento
 
       return true
     },
@@ -54,6 +55,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.userId = user.id
         token.roleId = user.roleId
         token.permissions = user.permissions
+        token.departamento = user.departamento
       }
 
       return token
@@ -68,6 +70,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.id = token.userId
         session.user.roleId = token.roleId
         session.user.permissions = token.permissions
+        session.user.departamento = token.departamento ?? null
       }
 
       return session

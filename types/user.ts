@@ -6,6 +6,7 @@ export type User = {
   email: string
   roleId: RoleId
   active: boolean
+  departamento: string | null
   createdAt: string
   updatedAt: string
 }
