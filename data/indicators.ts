@@ -1,6 +1,5 @@
 import type { Indicator } from "@/types/indicator"
 
-
 export const indicators: Indicator[] = [
   {
     id: "staffing",
@@ -33,7 +32,6 @@ export const indicators: Indicator[] = [
     hasUrgency: true,
   },
 
-
   {
     id: "building",
     dimensionId: "infrastructure",
@@ -64,7 +62,6 @@ export const indicators: Indicator[] = [
     required: true,
     hasUrgency: true,
   },
-
 
   {
     id: "aec",
@@ -97,7 +94,6 @@ export const indicators: Indicator[] = [
     hasUrgency: true,
   },
 
-
   {
     id: "innovation",
     dimensionId: "pedagogy",
@@ -127,5 +123,56 @@ export const indicators: Indicator[] = [
     order: 3,
     required: true,
     hasStrengths: true,
+  },
+
+  {
+    id: "environment-general",
+    dimensionId: "environment",
+    title: "Situación general",
+    description:
+      "Registrar la situación ambiental relevada y cualquier aspecto que requiera atención.",
+    order: 1,
+    required: false,
+    hasUrgency: true,
+  },
+  {
+    id: "institutional-articulation-general",
+    dimensionId: "institutional-articulation",
+    title: "Situación general",
+    description:
+      "Registrar la situación vinculada con la articulación institucional.",
+    order: 1,
+    required: false,
+    hasUrgency: true,
+  },
+  {
+    id: "communications-general",
+    dimensionId: "communications",
+    title: "Situación general",
+    description:
+      "Registrar la situación vinculada con las comunicaciones institucionales.",
+    order: 1,
+    required: false,
+    hasUrgency: true,
+  },
+  {
+    id: "resources-general",
+    dimensionId: "resources",
+    title: "Situación general",
+    description:
+      "Registrar la situación vinculada con recursos e insumos.",
+    order: 1,
+    required: false,
+    hasUrgency: true,
+  },
+  {
+    id: "security-general",
+    dimensionId: "security",
+    title: "Situación general",
+    description:
+      "Registrar la situación vinculada con la seguridad institucional.",
+    order: 1,
+    required: false,
+    hasUrgency: true,
   },
 ]

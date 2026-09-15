@@ -1,12 +1,11 @@
 "use client"
 
-
 import { useEffect, useMemo, useState } from "react"
 import { booleanPointInPolygon } from "@turf/boolean-point-in-polygon"
 import type { Institution } from "@/types/institution"
 import {
   calculateInstitutionAssessment,
-  type Criticality,
+  calculateTerritorialAssessment
 } from "@/lib/criticality"
 import type { Evaluation } from "@/types/evaluation"
 import { CriticalityDonut } from "./CriticalityDonut"
@@ -204,13 +203,17 @@ export function TerritorialOverview({
         territoryFilter.slice("circuit:".length),
       )
 
-      if (!sections || !Number.isFinite(circuitNumber)) {
+      if (
+        !sections ||
+        !Number.isFinite(circuitNumber)
+      ) {
         return []
       }
 
       const section = sections.features.find(
         (feature) =>
-          getSectionNumber(feature) === circuitNumber,
+          getSectionNumber(feature) ===
+          circuitNumber,
       )
 
       if (!section) {
@@ -244,8 +247,22 @@ export function TerritorialOverview({
     }
 
     return institutions
-  }, [institutions, sections, territoryFilter])
+  }, [
+    institutions,
+    sections,
+    territoryFilter,
+  ])
 
+  /*
+   * Criticidad individual.
+   *
+   * Se mantiene porque TerritorialMap necesita
+   * conocer la situación de cada institución
+   * cuando entramos en el detalle de un departamento.
+   *
+   * La regla de cálculo está centralizada en
+   * lib/criticality.ts.
+   */
   const assessments = useMemo(
     () =>
       filteredInstitutions.map(
@@ -258,23 +275,57 @@ export function TerritorialOverview({
     [filteredInstitutions, evaluations],
   )
 
-  const counts = useMemo(
+  /*
+   * Criticidad acumulada del territorio.
+   *
+   * Este cálculo es diferente de la criticidad
+   * individual de cada institución.
+   *
+   * calculateTerritorialAssessment:
+   * - toma todas las instituciones contenidas
+   *   en el territorio seleccionado;
+   * - considera únicamente instituciones con
+   *   relevamiento cerrado;
+   * - no utiliza instituciones pendientes para
+   *   diluir el resultado;
+   * - calcula el score acumulado sobre las
+   *   instituciones relevadas.
+   */
+  const territorialAssessment = useMemo(
     () =>
-      assessments.reduce(
-        (acc, item) => {
-          acc[item.criticality] += 1
-
-          return acc
-        },
-        {
-          alta: 0,
-          media: 0,
-          baja: 0,
-          "sin-relevamiento": 0,
-        } as Record<Criticality, number>,
+      calculateTerritorialAssessment(
+        filteredInstitutions,
+        evaluations,
       ),
-    [assessments],
+    [filteredInstitutions, evaluations],
   )
+
+  /*
+   * La distribución que acompaña al territorio
+   * utiliza exclusivamente instituciones relevadas.
+   *
+   * Las instituciones pendientes se mantienen como
+   * referencia para mostrar cuántas todavía no
+   * participan del cálculo territorial.
+   */
+  const counts = useMemo(
+    () => ({
+      alta: territorialAssessment.high,
+      media: territorialAssessment.medium,
+      baja: territorialAssessment.low,
+      "sin-relevamiento":
+        territorialAssessment.pendingInstitutions,
+    }),
+    [territorialAssessment],
+  )
+
+  /*
+   * Evitamos que TypeScript considere assessments
+   * como una variable sin uso en futuras extensiones
+   * del componente y dejamos explícita la separación
+   * entre cálculo individual y cálculo territorial.
+   */
+  void assessments
 
   const selectedLabel = useMemo(() => {
     if (territoryFilter === "todos") {

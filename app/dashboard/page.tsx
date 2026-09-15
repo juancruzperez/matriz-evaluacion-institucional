@@ -103,7 +103,7 @@ export default function Dashboard() {
 
     void loadEvaluations()
 
-   /* const handleFocus = () => {
+    /* const handleFocus = () => {
       void loadEvaluations()
     }
 
@@ -117,7 +117,7 @@ export default function Dashboard() {
 
       /*window.removeEventListener(
         "focus",
-        handleFocus,
+        handleFocus
       )*/
     }
   }, [])
@@ -140,6 +140,9 @@ export default function Dashboard() {
    * La situación territorial se calcula sobre las
    * instituciones y los relevamientos actuales
    * provenientes de Neon.
+   *
+   * La criticidad individual se encuentra
+   * centralizada en lib/criticality.ts.
    */
   const assessments = useMemo(() => {
     return institutions.map(
@@ -160,19 +163,31 @@ export default function Dashboard() {
 
   /*
    * Instituciones que ya tienen al menos
-   * un relevamiento.
+   * un relevamiento cerrado.
+   *
+   * Un relevamiento en borrador no convierte
+   * a la institución en una institución relevada.
    */
-  const evaluatedInstitutionCount =
-    useMemo(() => {
-      return assessments.filter(
-        (assessment) =>
-          assessment.evaluationCount > 0,
-      ).length
-    }, [assessments])
+  const evaluatedInstitutionCount = useMemo(() => {
+    const closedInstitutionIds = new Set(
+      closedEvaluations.map(
+        (evaluation) =>
+          evaluation.institutionId,
+      ),
+    )
+
+    return institutions.filter(
+      (institution) =>
+        closedInstitutionIds.has(institution.id),
+    ).length
+  }, [closedEvaluations, institutions])
 
   /*
    * Instituciones cuya situación actual
    * es de criticidad alta.
+   *
+   * La determinación de criticidad se realiza
+   * exclusivamente mediante lib/criticality.ts.
    */
   const highCriticalityCount =
     useMemo(() => {
@@ -258,7 +273,7 @@ export default function Dashboard() {
 
           <small>
             Instituciones con al menos un
-            relevamiento.
+            relevamiento cerrado.
           </small>
         </div>
 

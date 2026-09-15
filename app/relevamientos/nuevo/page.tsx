@@ -24,6 +24,7 @@ import { InstitutionSearch } from "@/components/evaluation/InstitutionSearch"
 import { DimensionSection } from "@/components/evaluation/DimensionSection"
 
 const API_TIMEOUT_MS = 15000
+const CLOSE_API_TIMEOUT_MS = 30000
 
 class ApiClientError extends Error {
   kind: "timeout" | "network" | "non-json"
@@ -41,6 +42,7 @@ class ApiClientError extends Error {
 async function requestJson<T>(
   input: RequestInfo | URL,
   init?: RequestInit,
+  timeoutMs = API_TIMEOUT_MS,
 ): Promise<{
   response: Response
   data: T
@@ -48,7 +50,7 @@ async function requestJson<T>(
   const controller = new AbortController()
   const timeoutId = window.setTimeout(
     () => controller.abort(),
-    API_TIMEOUT_MS,
+    timeoutMs,
   )
 
   try {
@@ -733,8 +735,9 @@ const readOnly =
 
   setIsClosing(true)
 
+  let currentEvaluation = evaluation
+
   try {
-    let currentEvaluation = evaluation
 
     const payload = {
       institutionId: evaluation.institutionId,
@@ -871,6 +874,7 @@ const readOnly =
             action: "close",
           }),
         },
+        CLOSE_API_TIMEOUT_MS,
       )
 
     if (!closeResponse.ok) {
@@ -894,6 +898,44 @@ const readOnly =
       error,
     )
 
+    /*
+ * El servidor puede haber cerrado el relevamiento aunque
+ * el navegador haya agotado el tiempo de espera. En ese
+ * caso verificamos el estado real en Neon antes de informar
+ * un error al usuario.
+ */
+if (
+  error instanceof ApiClientError &&
+  error.kind === "timeout"
+) {
+  try {
+    const { response, data } =
+      await requestJson<Evaluation>(
+        `/api/evaluations/${currentEvaluation.id}`,
+      )
+
+    if (response.ok) {
+      const serverEvaluation =
+        data as Evaluation
+
+      if (serverEvaluation.status === "closed") {
+        setEvaluation(serverEvaluation)
+        setPersisted(true)
+
+        alert(
+          `Relevamiento cerrado · versión ${serverEvaluation.version}`,
+        )
+
+        return
+      }
+    }
+  } catch (recoveryError) {
+    console.error(
+      "No se pudo verificar el estado del relevamiento después del timeout",
+      recoveryError,
+    )
+  }
+}
     alert(
       getApiErrorMessage(
         error,
