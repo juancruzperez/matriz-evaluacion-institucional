@@ -148,17 +148,42 @@ function NewEvaluationContent() {
     useState<Institution[]>([])
 
   const [persisted, setPersisted] =
-    useState(false)
+  useState(false)
 
-  const [activeDimension, setActiveDimension] =
-    useState<string | null>(null)
+const [activeDimension, setActiveDimension] =
+  useState<string | null>(null)
 
-  const [loadingEvaluation, setLoadingEvaluation] =
-    useState(false)
+const selectedDimension = useMemo(
+  () =>
+    dimensions.find(
+      (dimension) =>
+        dimension.id === activeDimension,
+    ) ?? null,
+  [activeDimension],
+)
 
-  const [isSaving, setIsSaving] =
-    useState(false)
+useEffect(() => {
+  if (!activeDimension) return
 
+  const timer = window.setTimeout(() => {
+    const element = document.getElementById(
+      `dimension-${activeDimension}`,
+    )
+
+    element?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    })
+  }, 50)
+
+  return () => window.clearTimeout(timer)
+}, [activeDimension])
+
+const [loadingEvaluation, setLoadingEvaluation] =
+  useState(false)
+
+const [isSaving, setIsSaving] =
+  useState(false)
   const [isClosing, setIsClosing] =
     useState(false)
 
@@ -1260,89 +1285,219 @@ if (
         </div>
       </section>
 
-      <section className="dimensions-nav">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">
-              DIMENSIONES
-            </p>
+      {!activeDimension ? (
+        /*
+         * VISTA GENERAL
+         *
+         * Cuando no hay una dimensión activa,
+         * mostramos todas las dimensiones.
+         */
+        <section className="dimensions-nav">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">
+                DIMENSIONES
+              </p>
 
-            <h2>
-              Seleccioná una dimensión
-            </h2>
+              <h2>
+                Seleccioná una dimensión
+              </h2>
+            </div>
           </div>
-        </div>
 
-        <div className="dimension-tabs">
-          {dimensions.map(
-            (dimension) => (
-              <button
-                key={dimension.id}
-                type="button"
-                className={
-                  activeDimension ===
-                  dimension.id
-                    ? "active"
-                    : ""
+          <div className="dimension-tabs">
+            {dimensions.map(
+              (dimension) => (
+                <button
+                  key={dimension.id}
+                  type="button"
+                  className=""
+                  onClick={() =>
+                    setActiveDimension(
+                      dimension.id,
+                    )
+                  }
+                >
+                  <span>
+                    {dimension.number}
+                  </span>
+
+                  <div>
+                    <strong>
+                      {dimension.title}
+                    </strong>
+
+                    <small>
+                      {
+                        dimension
+                          .indicators
+                          .length
+                      }{" "}
+                      indicadores
+                    </small>
+                  </div>
+
+                  <b aria-hidden="true">
+                    →
+                  </b>
+                </button>
+              ),
+            )}
+          </div>
+        </section>
+      ) : (
+        /*
+         * VISTA DE DIMENSIÓN
+         *
+         * La dimensión activa permanece arriba de
+         * sus indicadores. Debajo aparecen las demás
+         * dimensiones para poder cambiar de contexto
+         * sin tener que volver al inicio.
+         */
+        <section className="active-dimension">
+          <div
+            className="active-dimension-header"
+            style={{
+              position: "sticky",
+              top: "1rem",
+              zIndex: 10,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "1rem",
+              padding: "0.5rem 0",
+              background: "var(--background, #f5f4f5)",
+            }}
+          >
+            <button
+              type="button"
+              className="back-link"
+              onClick={() =>
+                setActiveDimension(null)
+              }
+            >
+              ← Volver a dimensiones
+            </button>
+          </div>
+
+          {selectedDimension && (
+            <>
+              <div className="dimension-tabs active-dimension-tab">
+                <button
+                  type="button"
+                  className="active"
+                  aria-current="page"
+                  onClick={() =>
+                    setActiveDimension(null)
+                  }
+                  title="Cerrar dimensión"
+                >
+                  <span>
+                    {selectedDimension.number}
+                  </span>
+
+                  <div>
+                    <strong>
+                      {selectedDimension.title}
+                    </strong>
+
+                    <small>
+                      {
+                        selectedDimension
+                          .indicators
+                          .length
+                      }{" "}
+                      indicadores
+                    </small>
+                  </div>
+
+                  <b aria-hidden="true">
+                    −
+                  </b>
+                </button>
+              </div>
+
+              <DimensionSection
+                dimension={
+                  selectedDimension
                 }
-                onClick={() =>
-                  setActiveDimension(
-                    activeDimension ===
-                      dimension.id
-                      ? null
-                      : dimension.id,
-                  )
+                responses={
+                  evaluation.responses
                 }
+                onChange={updateResponse}
+                onFieldChange={
+                  updateResponseField
+                }
+                readOnly={readOnly}
+              />
+
+              <div
+                className="dimensions-nav"
+                style={{
+                  marginTop: "2rem",
+                }}
               >
-                <span>
-                  {dimension.number}
-                </span>
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">
+                      DIMENSIONES
+                    </p>
 
-                <div>
-                  <strong>
-                    {dimension.title}
-                  </strong>
-
-                  <small>
-                    {
-                      dimension
-                        .indicators
-                        .length
-                    }{" "}
-                    indicadores
-                  </small>
+                    <h2>
+                      Otras dimensiones
+                    </h2>
+                  </div>
                 </div>
 
-                <b>
-                  {activeDimension ===
-                  dimension.id
-                    ? "−"
-                    : "+"}
-                </b>
-              </button>
-            ),
-          )}
-        </div>
-      </section>
+                <div className="dimension-tabs">
+                  {dimensions
+                    .filter(
+                      (dimension) =>
+                        dimension.id !==
+                        selectedDimension.id,
+                    )
+                    .map(
+                      (dimension) => (
+                        <button
+                          key={dimension.id}
+                          type="button"
+                          className=""
+                          onClick={() =>
+                            setActiveDimension(
+                              dimension.id,
+                            )
+                          }
+                        >
+                          <span>
+                            {dimension.number}
+                          </span>
 
-      {activeDimension && (
-        <DimensionSection
-          dimension={
-            dimensions.find(
-              (dimension) =>
-                dimension.id ===
-                activeDimension,
-            )!
-          }
-          responses={
-            evaluation.responses
-          }
-          onChange={updateResponse}
-          onFieldChange={
-            updateResponseField
-          }
-          readOnly={readOnly}
-        />
+                          <div>
+                            <strong>
+                              {dimension.title}
+                            </strong>
+
+                            <small>
+                              {
+                                dimension
+                                  .indicators
+                                  .length
+                              }{" "}
+                              indicadores
+                            </small>
+                          </div>
+
+                          <b aria-hidden="true">
+                            →
+                          </b>
+                        </button>
+                      ),
+                    )}
+                </div>
+              </div>
+            </>
+          )}
+        </section>
       )}
 
       {!isInstitutionalReadOnly && (
