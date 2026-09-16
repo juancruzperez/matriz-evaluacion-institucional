@@ -137,3 +137,53 @@ export async function resolveUserFromIdentity(
     identity.subject,
   )
 }
+
+export async function createUser({
+  name,
+  email,
+  roleId,
+  departamento,
+}: {
+  name: string
+  email: string
+  roleId: User["roleId"]
+  departamento: string | null
+}): Promise<User> {
+  const id = `user-${crypto.randomUUID()}`
+
+  const rows = (await sql`
+    INSERT INTO users (
+      id,
+      name,
+      email,
+      active,
+      role_id,
+      departamento
+    )
+    VALUES (
+      ${id},
+      ${name},
+      ${email},
+      true,
+      ${roleId},
+      ${departamento}
+    )
+    RETURNING
+      id,
+      name,
+      email,
+      active,
+      role_id,
+      departamento,
+      created_at,
+      updated_at
+  `) as UserRow[]
+
+  const row = rows[0]
+
+  if (!row) {
+    throw new Error("No se pudo crear el usuario.")
+  }
+
+  return mapUserRow(row)
+}
