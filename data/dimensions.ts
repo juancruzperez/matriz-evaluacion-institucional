@@ -29,4 +29,39 @@ export const dimensions: Dimension[] = [
     objective:
       "Evaluar el anclaje de las políticas de mejora y el liderazgo académico.",
   },
+  {
+    id: "environment",
+    number: "06",
+    title: "Ambiente",
+    objective:
+      "Relevar situaciones ambientales que incidan en el funcionamiento institucional y la comunidad educativa.",
+  },
+  {
+    id: "institutional-articulation",
+    number: "07",
+    title: "Articulación Institucional",
+    objective:
+      "Relevar situaciones vinculadas con la articulación de la institución con otros actores, organismos y niveles.",
+  },
+  {
+    id: "communications",
+    number: "08",
+    title: "Comunicaciones",
+    objective:
+      "Relevar situaciones relacionadas con los circuitos, canales y necesidades de comunicación institucional.",
+  },
+  {
+    id: "resources",
+    number: "09",
+    title: "Recursos e Insumos",
+    objective:
+      "Relevar situaciones vinculadas con la disponibilidad, suficiencia y necesidad de recursos e insumos institucionales.",
+  },
+  {
+    id: "security",
+    number: "10",
+    title: "Seguridad",
+    objective:
+      "Relevar situaciones que puedan afectar la seguridad de las personas y el normal funcionamiento institucional.",
+  },
 ]

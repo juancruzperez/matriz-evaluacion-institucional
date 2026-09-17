@@ -7,9 +7,11 @@ import {
   geoJSON as leafletGeoJSON,
 } from "leaflet"
 import {
+  CircleMarker as LeafletCircleMarker,
   GeoJSON as LeafletGeoJSON,
   MapContainer,
   Marker,
+  Popup,
   TileLayer,
   useMap,
 } from "react-leaflet"
@@ -21,7 +23,9 @@ import { pointOnFeature } from "@turf/point-on-feature"
 import type { Institution } from "@/types/institution"
 import {
   calculateInstitutionAssessment,
+  calculateTerritorialAssessment,
   type Criticality,
+  type TerritorialAssessment,
 } from "@/lib/criticality"
 import type { Evaluation } from "@/types/evaluation"
 
@@ -36,12 +40,7 @@ type DepartmentGeoJSON = {
   features: DepartmentFeature[]
 }
 
-type DepartmentStats = {
-  total: number
-  evaluated: number
-  pending: number
-  counts: Record<Criticality, number>
-}
+type DepartmentStats = TerritorialAssessment
 
 type SectionFeature = {
   type: "Feature"
@@ -60,12 +59,7 @@ type SectionGeoJSON = {
   features: SectionFeature[]
 }
 
-type SectionStats = {
-  total: number
-  evaluated: number
-  pending: number
-  counts: Record<Criticality, number>
-}
+type SectionStats = TerritorialAssessment
 
 const COLORS: Record<Criticality, string> = {
   alta: "#BF1363",
@@ -120,7 +114,9 @@ function getDepartmentName(
   return name ?? "Departamento"
 }
 
-function getSectionName(feature: SectionFeature) {
+function getSectionName(
+  feature: SectionFeature,
+) {
   return String(
     feature.properties?.NOMBRE ??
       feature.properties?.NUMERO ??
@@ -136,9 +132,8 @@ function getSectionName(feature: SectionFeature) {
  * polígono para evitar que los pequeños anillos internos
  * del archivo original aparezcan como líneas sobre el mapa.
  *
- * IMPORTANTE:
- * El GeoJSON original se sigue utilizando para la
- * asociación espacial de las instituciones.
+ * El GeoJSON original continúa utilizándose para
+ * la asociación espacial de las instituciones.
  */
 function getSectionDisplayData(
   data: SectionGeoJSON,
@@ -184,11 +179,6 @@ function getSectionDisplayData(
 /*
  * Obtiene un punto que se encuentra dentro de la
  * geometría de la sección.
- *
- * Se utiliza pointOnFeature en lugar del centro del
- * bounding box, porque algunas secciones tienen formas
- * irregulares y el centro del bounding box podría quedar
- * fuera del polígono.
  */
 function getSectionLabelPosition(
   feature: SectionFeature,
@@ -204,65 +194,31 @@ function getSectionLabelPosition(
   ]
 }
 
-/*
- * Formato ordinal de la etiqueta.
- *
- * Ejemplos:
- * 1ª
- * 2ª
- * 3ª
- * ...
- * 14ª
- */
-function getOrdinalSectionLabel(number: number) {
+function getOrdinalSectionLabel(
+  number: number,
+) {
   return `${number}ª`
 }
 
-function getDepartmentColor(
-  stats: DepartmentStats | undefined,
+/*
+ * El color territorial NO se calcula localmente.
+ *
+ * calculateTerritorialAssessment() es la única fuente
+ * de verdad para la criticidad acumulada del territorio.
+ */
+function getTerritorialColor(
+  assessment: TerritorialAssessment | undefined,
 ) {
-  if (!stats || stats.evaluated === 0) {
+  if (!assessment) {
     return COLORS["sin-relevamiento"]
   }
 
-  const score =
-    (stats.counts.alta * 3 +
-      stats.counts.media * 2 +
-      stats.counts.baja) /
-    (stats.evaluated * 3)
-
-  if (score >= 0.66) return COLORS.alta
-  if (score >= 0.33) return COLORS.media
-
-  return COLORS.baja
-}
-
-function getSectionColor(
-  stats: SectionStats | undefined,
-) {
-  if (!stats || stats.evaluated === 0) {
-    return COLORS["sin-relevamiento"]
-  }
-
-  const score =
-    (stats.counts.alta * 3 +
-      stats.counts.media * 2 +
-      stats.counts.baja) /
-    (stats.evaluated * 3)
-
-  if (score >= 0.66) return COLORS.alta
-  if (score >= 0.33) return COLORS.media
-
-  return COLORS.baja
+  return COLORS[assessment.criticality]
 }
 
 /*
  * Ajusta el mapa para mostrar completamente el
  * territorio seleccionado.
- *
- * No utiliza coordenadas fijas para departamentos
- * o circuitos: siempre calcula los límites reales
- * de la geometría seleccionada.
  */
 function FitTerritory({
   departments,
@@ -283,7 +239,10 @@ function FitTerritory({
       return
     }
 
-    let feature: DepartmentFeature | SectionFeature | undefined
+    let feature:
+      | DepartmentFeature
+      | SectionFeature
+      | undefined
 
     if (territoryFilter.startsWith("department:")) {
       const selectedName = territoryFilter.slice(
@@ -355,7 +314,9 @@ export function TerritorialMap({
   institutions: Institution[]
   evaluations: Evaluation[]
   territoryFilter?: string
-  onTerritoryFilterChange?: (value: string) => void
+  onTerritoryFilterChange?: (
+    value: string,
+  ) => void
 }) {
   const [departments, setDepartments] =
     useState<DepartmentGeoJSON | null>(null)
@@ -363,11 +324,12 @@ export function TerritorialMap({
   const [sections, setSections] =
     useState<SectionGeoJSON | null>(null)
 
+  const [geographyError, setGeographyError] =
+    useState(false)
+
   /*
-   * GeoJSON derivado exclusivamente para la visualización.
-   *
-   * El GeoJSON original se conserva para los cálculos
-   * de point-in-polygon.
+   * GeoJSON derivado exclusivamente para la
+   * visualización de Capital.
    */
   const displaySections = useMemo(
     () =>
@@ -377,11 +339,8 @@ export function TerritorialMap({
     [sections],
   )
 
-  const [geographyError, setGeographyError] =
-    useState(false)
-
   /*
-   * Cargar departamentos desde IDECOR.
+   * Cargar departamentos.
    */
   useEffect(() => {
     let cancelled = false
@@ -401,7 +360,12 @@ export function TerritorialMap({
           setDepartments(data)
         }
       })
-      .catch(() => {
+      .catch((error) => {
+        console.error(
+          "Error cargando departamentos:",
+          error,
+        )
+
         if (!cancelled) {
           setGeographyError(true)
         }
@@ -413,8 +377,7 @@ export function TerritorialMap({
   }, [])
 
   /*
-   * Cargar los 14 circuitos de Capital
-   * desde el GeoJSON local.
+   * Cargar los 14 circuitos de Capital.
    */
   useEffect(() => {
     let cancelled = false
@@ -449,7 +412,15 @@ export function TerritorialMap({
   }, [])
 
   /*
-   * Evaluación de cada institución.
+   * --------------------------------------------------
+   * CRITICIDAD INDIVIDUAL
+   * --------------------------------------------------
+   *
+   * Se calcula para cada institución utilizando
+   * exclusivamente la función centralizada.
+   *
+   * Esto será utilizado cuando el mapa entre en
+   * una vista departamental o de circuito.
    */
   const assessments = useMemo(
     () =>
@@ -465,16 +436,25 @@ export function TerritorialMap({
   )
 
   /*
-   * Estadísticas por departamento.
+   * --------------------------------------------------
+   * CRITICIDAD ACUMULADA POR DEPARTAMENTO
+   * --------------------------------------------------
+   *
+   * Cada departamento obtiene su propia evaluación
+   * territorial.
+   *
+   * calculateTerritorialAssessment:
+   * - considera las instituciones contenidas;
+   * - utiliza solamente relevamientos cerrados;
+   * - no diluye el score con instituciones pendientes;
+   * - calcula el score promedio de las instituciones
+   *   relevadas.
    */
   const departmentStats = useMemo(() => {
-    const stats =
-      new Map<string, DepartmentStats>()
+    const grouped =
+      new Map<string, Institution[]>()
 
-    for (const {
-      institution,
-      assessment,
-    } of assessments) {
+    for (const institution of institutions) {
       const key = normalizeDepartmentName(
         institution.departamento,
       )
@@ -482,60 +462,50 @@ export function TerritorialMap({
       if (!key) continue
 
       const current =
-        stats.get(key) ?? {
-          total: 0,
-          evaluated: 0,
-          pending: 0,
-          counts: {
-            alta: 0,
-            media: 0,
-            baja: 0,
-            "sin-relevamiento": 0,
-          },
-        }
+        grouped.get(key) ?? []
 
-      current.total += 1
-      current.counts[
-        assessment.criticality
-      ] += 1
+      current.push(institution)
 
-      if (
-        assessment.criticality ===
-        "sin-relevamiento"
-      ) {
-        current.pending += 1
-      } else {
-        current.evaluated += 1
-      }
+      grouped.set(key, current)
+    }
 
-      stats.set(key, current)
+    const stats =
+      new Map<string, DepartmentStats>()
+
+    for (const [
+      department,
+      departmentInstitutions,
+    ] of grouped) {
+      stats.set(
+        department,
+        calculateTerritorialAssessment(
+          departmentInstitutions,
+          evaluations,
+        ),
+      )
     }
 
     return stats
-  }, [assessments])
+  }, [institutions, evaluations])
 
   /*
-   * Estadísticas por circuito de Capital.
+   * --------------------------------------------------
+   * CRITICIDAD ACUMULADA POR CIRCUITO
+   * --------------------------------------------------
    *
-   * La institución se asocia espacialmente
-   * mediante sus coordenadas geográficas.
-   *
-   * IMPORTANTE:
-   * Se utiliza el GeoJSON original, no displaySections,
-   * para mantener la precisión de la asociación espacial.
+   * Los circuitos de Capital utilizan la geometría
+   * para determinar qué instituciones pertenecen
+   * a cada unidad territorial.
    */
   const capitalSectionStats = useMemo(() => {
     if (!sections) {
       return new Map<number, SectionStats>()
     }
 
-    const stats =
-      new Map<number, SectionStats>()
+    const grouped =
+      new Map<number, Institution[]>()
 
-    for (const {
-      institution,
-      assessment,
-    } of assessments) {
+    for (const institution of institutions) {
       if (
         normalizeDepartmentName(
           institution.departamento,
@@ -552,55 +522,61 @@ export function TerritorialMap({
       }
 
       const latitude = institution.latitude
-      const longitude = institution.longitude
+const longitude = institution.longitude
 
-      const section = sections.features.find(
-        (feature) =>
-          booleanPointInPolygon(
-            [longitude, latitude],
-            feature as never,
-          ),
-      )
+if (
+  latitude === null ||
+  longitude === null
+) {
+  continue
+}
 
-      if (!section?.properties?.NUMERO) {
+const section = sections.features.find(
+  (feature) =>
+    booleanPointInPolygon(
+      [longitude, latitude],
+      feature as never,
+    ),
+)
+
+      const sectionNumber =
+        section?.properties?.NUMERO
+
+      if (
+        typeof sectionNumber !== "number"
+      ) {
         continue
       }
 
-      const sectionNumber =
-        section.properties.NUMERO
-
       const current =
-        stats.get(sectionNumber) ?? {
-          total: 0,
-          evaluated: 0,
-          pending: 0,
-          counts: {
-            alta: 0,
-            media: 0,
-            baja: 0,
-            "sin-relevamiento": 0,
-          },
-        }
+        grouped.get(sectionNumber) ?? []
 
-      current.total += 1
-      current.counts[
-        assessment.criticality
-      ] += 1
+      current.push(institution)
 
-      if (
-        assessment.criticality ===
-        "sin-relevamiento"
-      ) {
-        current.pending += 1
-      } else {
-        current.evaluated += 1
-      }
+      grouped.set(
+        sectionNumber,
+        current,
+      )
+    }
 
-      stats.set(sectionNumber, current)
+    const stats =
+      new Map<number, SectionStats>()
+
+    for (const [
+      sectionNumber,
+      sectionInstitutions,
+    ] of grouped) {
+      stats.set(
+        sectionNumber,
+        calculateTerritorialAssessment(
+          sectionInstitutions,
+          evaluations,
+        ),
+      )
     }
 
     return stats
-  }, [assessments, sections])
+  }, [institutions, evaluations, sections])
 
   /*
    * Diagnóstico de desarrollo.
@@ -622,25 +598,39 @@ export function TerritorialMap({
           return {
             circuito: circuit,
             instituciones:
-              stats?.total ?? 0,
+              stats?.totalInstitutions ?? 0,
             relevadas:
-              stats?.evaluated ?? 0,
+              stats?.evaluatedInstitutions ?? 0,
             pendientes:
-              stats?.pending ?? 0,
+              stats?.pendingInstitutions ?? 0,
             alta:
-              stats?.counts.alta ?? 0,
+              stats?.high ?? 0,
             media:
-              stats?.counts.media ?? 0,
+              stats?.medium ?? 0,
             baja:
-              stats?.counts.baja ?? 0,
+              stats?.low ?? 0,
+            criticidad:
+              stats?.criticality ??
+              "sin-relevamiento",
+            score:
+              stats?.score ?? null,
           }
         },
       ),
     )
-  }, [sections, capitalSectionStats])
+  }, [
+    sections,
+    capitalSectionStats,
+  ])
 
   /*
-   * Estilo de departamentos.
+   * --------------------------------------------------
+   * ESTILO DE DEPARTAMENTOS
+   * --------------------------------------------------
+   *
+   * En la vista general cada departamento representa
+   * una unidad territorial y recibe su criticidad
+   * acumulada.
    */
   const styleDepartment = (
     feature?: DepartmentFeature,
@@ -657,15 +647,19 @@ export function TerritorialMap({
     return {
       color: BORDER_COLOR,
       weight: 1,
-      fillColor: getDepartmentColor(stats),
-      fillOpacity: stats?.evaluated
-        ? 0.68
-        : 0.3,
+      fillColor:
+        getTerritorialColor(stats),
+      fillOpacity:
+        stats?.evaluatedInstitutions
+          ? 0.68
+          : 0.3,
     }
   }
 
   /*
-   * Popup de departamento.
+   * --------------------------------------------------
+   * CLICK DEPARTAMENTO
+   * --------------------------------------------------
    */
   const handleDepartment = (
     feature: DepartmentFeature,
@@ -680,9 +674,8 @@ export function TerritorialMap({
       departmentStats.get(normalizedName)
 
     /*
-     * Capital tiene comportamiento especial:
-     * al hacer click se ingresa directamente
-     * al nivel de los 14 circuitos.
+     * Capital conserva su navegación especial
+     * hacia los 14 circuitos.
      */
     if (normalizedName === "capital") {
       layer.bindPopup(`
@@ -692,12 +685,18 @@ export function TerritorialMap({
           ${
             stats
               ? `
-                <p>${stats.total} instituciones</p>
-                <p>${stats.evaluated} con relevamiento</p>
-                <p>${stats.pending} pendientes</p>
-                <p>Alta: ${stats.counts.alta}</p>
-                <p>Media: ${stats.counts.media}</p>
-                <p>Baja: ${stats.counts.baja}</p>
+                <p>${stats.totalInstitutions} instituciones</p>
+                <p>${stats.evaluatedInstitutions} con relevamiento cerrado</p>
+                <p>${stats.pendingInstitutions} pendientes</p>
+                <p>Alta: ${stats.high}</p>
+                <p>Media: ${stats.medium}</p>
+                <p>Baja: ${stats.low}</p>
+                <p>Criticidad territorial: ${stats.criticality}</p>
+                ${
+                  stats.score !== null
+                    ? `<p>Score: ${stats.score.toFixed(3)}</p>`
+                    : ""
+                }
               `
               : "<p>Sin instituciones asociadas.</p>"
           }
@@ -710,6 +709,7 @@ export function TerritorialMap({
 
       layer.on("click", () => {
         layer.closePopup()
+
         onTerritoryFilterChange?.(
           "department:Capital",
         )
@@ -718,23 +718,26 @@ export function TerritorialMap({
       return
     }
 
-    layer.on("click", () => {
-      onTerritoryFilterChange?.(
-        `department:${name}`,
-      )
-    })
-
     layer.bindPopup(
       stats
         ? `
           <div class="map-popup">
             <strong>${name}</strong>
-            <p>${stats.total} instituciones</p>
-            <p>${stats.evaluated} con relevamiento</p>
-            <p>${stats.pending} pendientes</p>
-            <p>Alta: ${stats.counts.alta}</p>
-            <p>Media: ${stats.counts.media}</p>
-            <p>Baja: ${stats.counts.baja}</p>
+            <p>${stats.totalInstitutions} instituciones</p>
+            <p>${stats.evaluatedInstitutions} con relevamiento cerrado</p>
+            <p>${stats.pendingInstitutions} pendientes</p>
+            <p>Alta: ${stats.high}</p>
+            <p>Media: ${stats.medium}</p>
+            <p>Baja: ${stats.low}</p>
+            <p>Criticidad territorial: ${stats.criticality}</p>
+            ${
+              stats.score !== null
+                ? `<p>Score: ${stats.score.toFixed(3)}</p>`
+                : ""
+            }
+            <p class="map-popup-hint">
+              Seleccionar para ver las instituciones.
+            </p>
           </div>
         `
         : `
@@ -744,10 +747,18 @@ export function TerritorialMap({
           </div>
         `,
     )
+
+    layer.on("click", () => {
+      onTerritoryFilterChange?.(
+        `department:${name}`,
+      )
+    })
   }
 
   /*
-   * Estilo de los circuitos.
+   * --------------------------------------------------
+   * ESTILO DE CIRCUITOS
+   * --------------------------------------------------
    */
   const styleSection = (
     feature?: SectionFeature,
@@ -764,15 +775,19 @@ export function TerritorialMap({
     return {
       color: BORDER_COLOR,
       weight: 1.5,
-      fillColor: getSectionColor(stats),
-      fillOpacity: stats?.evaluated
-        ? 0.72
-        : 0.35,
+      fillColor:
+        getTerritorialColor(stats),
+      fillOpacity:
+        stats?.evaluatedInstitutions
+          ? 0.72
+          : 0.35,
     }
   }
 
   /*
-   * Popup de circuito.
+   * --------------------------------------------------
+   * CLICK DE CIRCUITO
+   * --------------------------------------------------
    */
   const handleSection = (
     feature: SectionFeature,
@@ -781,7 +796,8 @@ export function TerritorialMap({
     const sectionNumber =
       feature.properties?.NUMERO
 
-    const name = getSectionName(feature)
+    const name =
+      getSectionName(feature)
 
     const stats = sectionNumber
       ? capitalSectionStats.get(
@@ -790,7 +806,9 @@ export function TerritorialMap({
       : undefined
 
     layer.on("click", () => {
-      if (typeof sectionNumber === "number") {
+      if (
+        typeof sectionNumber === "number"
+      ) {
         onTerritoryFilterChange?.(
           `circuit:${sectionNumber}`,
         )
@@ -802,12 +820,21 @@ export function TerritorialMap({
         ? `
           <div class="map-popup">
             <strong>Circuito ${name}</strong>
-            <p>${stats.total} instituciones</p>
-            <p>${stats.evaluated} con relevamiento</p>
-            <p>${stats.pending} pendientes</p>
-            <p>Alta: ${stats.counts.alta}</p>
-            <p>Media: ${stats.counts.media}</p>
-            <p>Baja: ${stats.counts.baja}</p>
+            <p>${stats.totalInstitutions} instituciones</p>
+            <p>${stats.evaluatedInstitutions} con relevamiento cerrado</p>
+            <p>${stats.pendingInstitutions} pendientes</p>
+            <p>Alta: ${stats.high}</p>
+            <p>Media: ${stats.medium}</p>
+            <p>Baja: ${stats.low}</p>
+            <p>Criticidad territorial: ${stats.criticality}</p>
+            ${
+              stats.score !== null
+                ? `<p>Score: ${stats.score.toFixed(3)}</p>`
+                : ""
+            }
+            <p class="map-popup-hint">
+              Seleccionar para ver las instituciones.
+            </p>
           </div>
         `
         : `
@@ -819,6 +846,150 @@ export function TerritorialMap({
     )
   }
 
+  /*
+   * --------------------------------------------------
+   * INSTITUCIONES DE LA VISTA ACTUAL
+   * --------------------------------------------------
+   *
+   * Los círculos solamente aparecen cuando estamos
+   * dentro de un departamento o circuito.
+   *
+   * En la vista provincial NO se muestran los 5.000+
+   * puntos simultáneamente.
+   */
+  const showInstitutionMarkers =
+    territoryFilter.startsWith(
+      "department:",
+    ) ||
+    territoryFilter.startsWith(
+      "circuit:",
+    )
+
+  /*
+   * Capital en department:Capital mantiene la vista
+   * de circuitos y no muestra todavía los puntos
+   * institucionales.
+   *
+   * Cuando se entra a un circuito sí se muestran
+   * las instituciones.
+   */
+  const showCapitalSections =
+    territoryFilter ===
+      "department:Capital"
+
+  const visibleInstitutionAssessments =
+    useMemo(() => {
+      if (!showInstitutionMarkers) {
+        return []
+      }
+
+      /*
+       * En Capital:
+       * department:Capital = vista de circuitos.
+       * circuit:N = instituciones del circuito.
+       */
+      if (
+        territoryFilter ===
+        "department:Capital"
+      ) {
+        return []
+      }
+
+      return assessments.filter(
+        ({ institution }) => {
+          if (
+            territoryFilter.startsWith(
+              "department:",
+            )
+          ) {
+            const departmentName =
+              territoryFilter.slice(
+                "department:".length,
+              )
+
+            return (
+              normalizeDepartmentName(
+                institution.departamento,
+              ) ===
+              normalizeDepartmentName(
+                departmentName,
+              )
+            )
+          }
+
+          if (
+            territoryFilter.startsWith(
+              "circuit:",
+            )
+          ) {
+            const circuitNumber = Number(
+              territoryFilter.slice(
+                "circuit:".length,
+              ),
+            )
+
+            if (
+              !Number.isFinite(
+                circuitNumber,
+              ) ||
+              !sections
+            ) {
+              return false
+            }
+
+            if (
+              normalizeDepartmentName(
+                institution.departamento,
+              ) !== "capital"
+            ) {
+              return false
+            }
+
+            if (
+              institution.latitude ===
+                null ||
+              institution.longitude ===
+                null
+            ) {
+              return false
+            }
+
+            const section =
+              sections.features.find(
+                (feature) =>
+                  feature.properties
+                    ?.NUMERO ===
+                  circuitNumber,
+              )
+
+            if (!section) {
+              return false
+            }
+
+            return booleanPointInPolygon(
+              [
+                institution.longitude,
+                institution.latitude,
+              ],
+              section as never,
+            )
+          }
+
+          return false
+        },
+      )
+    }, [
+      assessments,
+      sections,
+      territoryFilter,
+      showInstitutionMarkers,
+    ])
+
+  /*
+   * --------------------------------------------------
+   * VISTA DEL MAPA
+   * --------------------------------------------------
+   */
   return (
     <div className="territorial-map">
       <MapContainer
@@ -833,49 +1004,36 @@ export function TerritorialMap({
         />
 
         <MapPopupController
-          territoryFilter={territoryFilter}
+          territoryFilter={
+            territoryFilter
+          }
         />
 
         <FitTerritory
           departments={departments}
           sections={sections}
-          territoryFilter={territoryFilter}
+          territoryFilter={
+            territoryFilter
+          }
         />
 
         {/*
-         * Vista provincial:
-         * - toda la provincia: 26 departamentos;
-         * - departamento seleccionado: solamente
-         *   el polígono completo seleccionado.
+         * ------------------------------------------------
+         * VISTA PROVINCIAL
+         * ------------------------------------------------
+         *
+         * Cada departamento recibe el color de su
+         * criticidad acumulada.
+         *
+         * No se dibujan instituciones individualmente.
          */}
         {departments &&
-          !territoryFilter.startsWith("circuit:") &&
-          !(
-            territoryFilter === "department:Capital"
-          ) && (
+          territoryFilter ===
+            "todos" && (
             <LeafletGeoJSON
-              key={`department-${territoryFilter}`}
+              key="departments-all"
               data={
-                territoryFilter === "todos"
-                  ? (departments as never)
-                  : ({
-                      type: "FeatureCollection",
-                      features:
-                        departments.features.filter(
-                          (feature) =>
-                            normalizeDepartmentName(
-                              getDepartmentName(
-                                feature,
-                              ),
-                            ) ===
-                            normalizeDepartmentName(
-                              territoryFilter.replace(
-                                "department:",
-                                "",
-                              ),
-                            ),
-                        ),
-                    } as never)
+                departments as never
               }
               style={(feature) =>
                 styleDepartment(
@@ -895,38 +1053,71 @@ export function TerritorialMap({
           )}
 
         {/*
-         * Capital:
-         * - department:Capital muestra los 14 circuitos;
-         * - circuit:N muestra solamente el polígono
-         *   completo del circuito seleccionado.
+         * ------------------------------------------------
+         * VISTA DEPARTAMENTO
+         * ------------------------------------------------
+         *
+         * Al entrar a un departamento:
+         *
+         * - se deja de utilizar el polígono como
+         *   representación principal;
+         * - aparecen círculos individuales;
+         * - cada círculo tiene el color de la
+         *   criticidad actual de esa institución.
+         */}
+        {departments &&
+          territoryFilter.startsWith(
+            "department:",
+          ) &&
+          territoryFilter !==
+            "department:Capital" && (
+            <LeafletGeoJSON
+              key={`department-selected-${territoryFilter}`}
+              data={
+                {
+                  type: "FeatureCollection",
+                  features:
+                    departments.features.filter(
+                      (feature) =>
+                        normalizeDepartmentName(
+                          getDepartmentName(
+                            feature,
+                          ),
+                        ) ===
+                        normalizeDepartmentName(
+                          territoryFilter.replace(
+                            "department:",
+                            "",
+                          ),
+                        ),
+                    ),
+                } as never
+              }
+              style={() => ({
+                color: BORDER_COLOR,
+                weight: 1,
+                fillColor:
+                  "#EDEDF4",
+                fillOpacity: 0.08,
+              })}
+            />
+          )}
+
+        {/*
+         * ------------------------------------------------
+         * CAPITAL
+         * ------------------------------------------------
+         *
+         * Capital continúa funcionando con sus
+         * 14 circuitos territoriales.
          */}
         {sections &&
-          (territoryFilter ===
-            "department:Capital" ||
-            territoryFilter.startsWith(
-              "circuit:",
-            )) && (
+          showCapitalSections && (
             <>
               <LeafletGeoJSON
-                key={`capital-${territoryFilter}`}
+                key="capital-sections"
                 data={
-                  territoryFilter ===
-                  "department:Capital"
-                    ? (displaySections as never)
-                    : ({
-                        type: "FeatureCollection",
-                        features:
-                          displaySections?.features.filter(
-                            (feature) =>
-                              feature.properties
-                                ?.NUMERO ===
-                              Number(
-                                territoryFilter.slice(
-                                  "circuit:".length,
-                                ),
-                              ),
-                          ) ?? [],
-                      } as never)
+                  displaySections as never
                 }
                 style={(feature) =>
                   styleSection(
@@ -946,34 +1137,17 @@ export function TerritorialMap({
 
               {/*
                * Etiquetas de los circuitos.
-               * En una selección individual solamente
-               * se etiqueta el circuito seleccionado.
                */}
               {displaySections &&
-                displaySections.features
-                  .filter((feature) => {
-                    if (
-                      territoryFilter ===
-                      "department:Capital"
-                    ) {
-                      return true
-                    }
-
-                    return (
-                      feature.properties?.NUMERO ===
-                      Number(
-                        territoryFilter.slice(
-                          "circuit:".length,
-                        ),
-                      )
-                    )
-                  })
-                  .map((feature) => {
+                displaySections.features.map(
+                  (feature) => {
                     const number =
-                      feature.properties?.NUMERO
+                      feature.properties
+                        ?.NUMERO
 
                     if (
-                      typeof number !== "number"
+                      typeof number !==
+                      "number"
                     ) {
                       return null
                     }
@@ -986,8 +1160,12 @@ export function TerritorialMap({
                     return (
                       <Marker
                         key={`circuit-label-${number}`}
-                        position={position}
-                        interactive={false}
+                        position={
+                          position
+                        }
+                        interactive={
+                          false
+                        }
                         icon={divIcon({
                           className:
                             "territorial-section-label",
@@ -998,22 +1176,183 @@ export function TerritorialMap({
                               )}
                             </span>
                           `,
-                          iconSize: [30, 24],
-                          iconAnchor: [15, 12],
+                          iconSize: [
+                            30,
+                            24,
+                          ],
+                          iconAnchor: [
+                            15,
+                            12,
+                          ],
                         })}
                       />
                     )
-                  })}
+                  },
+                )}
             </>
           )}
 
+        {/*
+         * ------------------------------------------------
+         * CIRCUITO SELECCIONADO
+         * ------------------------------------------------
+         *
+         * Se muestra la superficie del circuito
+         * seleccionado como referencia geográfica.
+         */}
+        {sections &&
+          territoryFilter.startsWith(
+            "circuit:",
+          ) && (
+            <LeafletGeoJSON
+              key={`circuit-${territoryFilter}`}
+              data={
+                {
+                  type: "FeatureCollection",
+                  features:
+                    displaySections?.features.filter(
+                      (feature) =>
+                        feature.properties
+                          ?.NUMERO ===
+                        Number(
+                          territoryFilter.slice(
+                            "circuit:".length,
+                          ),
+                        ),
+                    ) ?? [],
+                } as never
+              }
+              style={(feature) =>
+                styleSection(
+                  feature as SectionFeature,
+                )
+              }
+            />
+          )}
+
+        {/*
+         * ------------------------------------------------
+         * CÍRCULOS DE INSTITUCIONES
+         * ------------------------------------------------
+         *
+         * Cada círculo representa una institución.
+         *
+         * El color proviene directamente de
+         * calculateInstitutionAssessment().
+         */}
+        {visibleInstitutionAssessments.map(
+          ({
+            institution,
+            assessment,
+          }) => {
+            if (
+              institution.latitude ===
+                null ||
+              institution.longitude ===
+                null
+            ) {
+              return null
+            }
+
+            const fillColor =
+              COLORS[
+                assessment.criticality
+              ]
+
+            return (
+              <LeafletCircleMarker
+                key={`institution-${institution.id}`}
+                center={[
+                  institution.latitude,
+                  institution.longitude,
+                ]}
+                radius={8}
+                pathOptions={{
+                  color:
+                    assessment.criticality ===
+                    "media"
+                      ? BORDER_COLOR
+                      : fillColor,
+                  fillColor,
+                  fillOpacity: 0.9,
+                  weight: 2,
+                }}
+              >
+                <Popup>
+                  <div className="map-popup">
+                    <strong>
+                      {institution.name}
+                    </strong>
+
+                    <p>
+                      {institution.localidad ??
+                        institution.departamento ??
+                        ""}
+                    </p>
+
+                    <p>
+                      Criticidad:{" "}
+                      {assessment.criticality}
+                    </p>
+
+                    {assessment.score !==
+                      null && (
+                      <p>
+                        Score:{" "}
+                        {assessment.score.toFixed(
+                          3,
+                        )}
+                      </p>
+                    )}
+
+                    <p>
+                      Relevamientos cerrados:{" "}
+                      {
+                        assessment.evaluationCount
+                      }
+                    </p>
+
+                    {assessment.lastDate && (
+                      <p>
+                        Último relevamiento:{" "}
+                        {
+                          assessment.lastDate
+                        }
+                      </p>
+                    )}
+
+                    {assessment.indicatorCount >
+                      0 && (
+                      <p>
+                        Indicadores con urgencia:{" "}
+                        {
+                          assessment.indicatorCount
+                        }
+                      </p>
+                    )}
+
+                    {assessment.criticality ===
+                      "sin-relevamiento" && (
+                      <p className="map-popup-hint">
+                        Sin relevamiento
+                        cerrado con criticidad
+                        calculable.
+                      </p>
+                    )}
+                  </div>
+                </Popup>
+              </LeafletCircleMarker>
+            )
+          },
+        )}
       </MapContainer>
 
       {/*
-       * Navegación cuando se está dentro de Capital
-       * o de un circuito individual.
+       * Navegación dentro de Capital o de un
+       * circuito individual.
        */}
-      {(territoryFilter === "department:Capital" ||
+      {(territoryFilter ===
+        "department:Capital" ||
         territoryFilter.startsWith(
           "circuit:",
         )) && (
@@ -1029,17 +1368,45 @@ export function TerritorialMap({
               onTerritoryFilterChange?.(
                 "department:Capital",
               )
+
               return
             }
 
-            onTerritoryFilterChange?.("todos")
+            onTerritoryFilterChange?.(
+              "todos",
+            )
           }}
         >
-          {territoryFilter.startsWith("circuit:")
+          {territoryFilter.startsWith(
+            "circuit:",
+          )
             ? "← Volver a circuitos"
             : "← Volver a departamentos"}
         </button>
       )}
+
+      {/*
+       * Cuando estamos dentro de un departamento
+       * distinto de Capital, también necesitamos
+       * permitir regresar a la vista provincial.
+       */}
+      {territoryFilter.startsWith(
+        "department:",
+      ) &&
+        territoryFilter !==
+          "department:Capital" && (
+          <button
+            type="button"
+            className="territorial-map-back"
+            onClick={() =>
+              onTerritoryFilterChange?.(
+                "todos",
+              )
+            }
+          >
+            ← Volver a departamentos
+          </button>
+        )}
 
       {!departments &&
         !geographyError && (

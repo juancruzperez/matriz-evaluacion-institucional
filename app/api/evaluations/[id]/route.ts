@@ -597,8 +597,10 @@ export async function POST(
   const nextVersion =
     existing.version + 1
 
+  let closedRow: EvaluationRow | undefined
+
   try {
-    await sql`
+    const closedRows = (await sql`
       UPDATE evaluations
       SET
         status = 'closed',
@@ -608,7 +610,23 @@ export async function POST(
         updated_at = NOW()
       WHERE id = ${id}
         AND status <> 'closed'
-    `
+      RETURNING
+        id,
+        version,
+        status,
+        institution_id,
+        institution_level_id,
+        date,
+        management_team_present,
+        management_team_contact,
+        created_by,
+        updated_by,
+        created_at,
+        updated_at,
+        closed_at
+    `) as EvaluationRow[]
+
+    closedRow = closedRows[0]
   } catch (error) {
     console.error(
       "Failed to close evaluation",
@@ -625,20 +643,58 @@ export async function POST(
     )
   }
 
-  const closed =
-    await loadEvaluation(id)
+  const responseRows = (await sql`
+    SELECT
+      id,
+      evaluation_id,
+      indicator_id,
+      observation,
+      urgency,
+      strengths,
+      fields
+    FROM evaluation_responses
+    WHERE evaluation_id = ${id}
+    ORDER BY indicator_id
+  `) as EvaluationResponseRow[]
 
-  if (!closed) {
+  const responses: EvaluationResponse[] =
+    responseRows.map((row) => ({
+      id: row.id,
+      evaluationId: row.evaluation_id,
+      indicatorId: row.indicator_id,
+      observation: row.observation,
+      ...(row.urgency
+        ? {
+            urgency: row.urgency,
+          }
+        : {}),
+      ...(row.strengths
+        ? {
+            strengths: row.strengths,
+          }
+        : {}),
+      ...(row.fields
+        ? {
+            fields: row.fields,
+          }
+        : {}),
+    }))
+
+  if (!closedRow) {
     return Response.json(
       {
-        error:
-          "Evaluation closed but could not be loaded",
+        error: "Evaluation is already closed",
       },
       {
-        status: 500,
+        status: 409,
       },
     )
   }
+
+  const closed = mapEvaluationRow(
+    closedRow,
+    responses,
+  )
 
   return Response.json(closed)
 }

@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
+
 import type { Institution } from "@/types/institution"
 import type { Evaluation } from "@/types/evaluation"
 import { calculateInstitutionAssessment } from "@/lib/criticality"
@@ -24,12 +25,20 @@ const TerritorialOverview = dynamic(
   },
 )
 
+type SessionUser = {
+  roleId?: string
+  departamento?: string | null
+}
+
 export default function Dashboard() {
   const [evaluations, setEvaluations] =
     useState<Evaluation[]>([])
 
   const [institutions, setInstitutions] =
     useState<Institution[]>([])
+
+  const [sessionUser, setSessionUser] =
+    useState<SessionUser | null>(null)
 
   const [loadingEvaluations, setLoadingEvaluations] =
     useState(true)
@@ -42,11 +51,15 @@ export default function Dashboard() {
         const [
           evaluationsResponse,
           institutionsResponse,
+          sessionResponse,
         ] = await Promise.all([
           fetch("/api/evaluations", {
             cache: "no-store",
           }),
           fetch("/api/institutions", {
+            cache: "no-store",
+          }),
+          fetch("/api/auth/session", {
             cache: "no-store",
           }),
         ])
@@ -56,6 +69,9 @@ export default function Dashboard() {
 
         const institutionsData =
           await institutionsResponse.json()
+
+        const sessionData =
+          await sessionResponse.json()
 
         if (!evaluationsResponse.ok) {
           throw new Error(
@@ -71,7 +87,17 @@ export default function Dashboard() {
           )
         }
 
+        if (!sessionResponse.ok) {
+          throw new Error(
+            "No se pudo cargar la sesión.",
+          )
+        }
+
         if (cancelled) return
+
+        setSessionUser(
+          sessionData?.user ?? null,
+        )
 
         setEvaluations(
           (evaluationsData as Evaluation[]).map(
@@ -103,43 +129,68 @@ export default function Dashboard() {
 
     void loadEvaluations()
 
-   /* const handleFocus = () => {
-      void loadEvaluations()
-    }
-
-    window.addEventListener(
-      "focus",
-      handleFocus,
-    )*/
-
     return () => {
       cancelled = true
-
-      /*window.removeEventListener(
-        "focus",
-        handleFocus,
-      )*/
     }
   }, [])
 
-  const draftEvaluations = useMemo(() => {
+  const isTerritorialResponsible =
+    sessionUser?.roleId ===
+    "responsable_territorial"
+
+  /*
+   * Los responsables territoriales reciben las
+   * instituciones ya filtradas desde el backend.
+   *
+   * A partir de ese conjunto construimos también
+   * el universo de relevamientos que debe mostrar
+   * el dashboard.
+   */
+  const scopedEvaluations = useMemo(() => {
+    if (!isTerritorialResponsible) {
+      return evaluations
+    }
+
+    const institutionIds = new Set(
+      institutions.map(
+        (institution) => institution.id,
+      ),
+    )
+
     return evaluations.filter(
       (evaluation) =>
-        (evaluation.status ?? "draft") === "draft",
+        institutionIds.has(
+          evaluation.institutionId,
+        ),
     )
-  }, [evaluations])
+  }, [
+    evaluations,
+    institutions,
+    isTerritorialResponsible,
+  ])
+
+  const draftEvaluations = useMemo(() => {
+    return scopedEvaluations.filter(
+      (evaluation) =>
+        (evaluation.status ?? "draft") ===
+        "draft",
+    )
+  }, [scopedEvaluations])
 
   const closedEvaluations = useMemo(() => {
-    return evaluations.filter(
+    return scopedEvaluations.filter(
       (evaluation) =>
         evaluation.status === "closed",
     )
-  }, [evaluations])
+  }, [scopedEvaluations])
 
   /*
    * La situación territorial se calcula sobre las
    * instituciones y los relevamientos actuales
    * provenientes de Neon.
+   *
+   * La criticidad individual se encuentra
+   * centralizada en lib/criticality.ts.
    */
   const assessments = useMemo(() => {
     return institutions.map(
@@ -153,22 +204,31 @@ export default function Dashboard() {
 
   /*
    * Total de instituciones que forman parte
-   * del Circuito 3.
+   * del territorio visible.
    */
   const institutionCount =
     institutions.length
 
   /*
    * Instituciones que ya tienen al menos
-   * un relevamiento.
+   * un relevamiento cerrado.
    */
   const evaluatedInstitutionCount =
     useMemo(() => {
-      return assessments.filter(
-        (assessment) =>
-          assessment.evaluationCount > 0,
+      const closedInstitutionIds = new Set(
+        closedEvaluations.map(
+          (evaluation) =>
+            evaluation.institutionId,
+        ),
+      )
+
+      return institutions.filter(
+        (institution) =>
+          closedInstitutionIds.has(
+            institution.id,
+          ),
       ).length
-    }, [assessments])
+    }, [closedEvaluations, institutions])
 
   /*
    * Instituciones cuya situación actual
@@ -187,12 +247,12 @@ export default function Dashboard() {
    * Relevamientos que todavía están abiertos.
    */
   const pendingCount = useMemo(() => {
-    return evaluations.filter(
+    return scopedEvaluations.filter(
       (evaluation) =>
-        (evaluation.status ??
-          "draft") === "draft",
+        (evaluation.status ?? "draft") ===
+        "draft",
     ).length
-  }, [evaluations])
+  }, [scopedEvaluations])
 
   return (
     <main className="shell">
@@ -230,7 +290,7 @@ export default function Dashboard() {
 
       <section
         className="metric-grid"
-        aria-label="Resumen del Circuito 3"
+        aria-label="Resumen del territorio"
       >
         <div className="metric-card">
           <span>
@@ -243,7 +303,7 @@ export default function Dashboard() {
 
           <small>
             Instituciones que integran el
-            zona de accion.
+            territorio.
           </small>
         </div>
 
@@ -258,7 +318,7 @@ export default function Dashboard() {
 
           <small>
             Instituciones con al menos un
-            relevamiento.
+            relevamiento cerrado.
           </small>
         </div>
 
@@ -296,6 +356,12 @@ export default function Dashboard() {
         institutions={institutions}
         evaluations={evaluations}
         loading={loadingEvaluations}
+        isTerritorialResponsible={
+          isTerritorialResponsible
+        }
+        territorialDepartment={
+          sessionUser?.departamento ?? null
+        }
       />
 
       <section className="dashboard-card">
@@ -318,7 +384,7 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {evaluations.length === 0 ? (
+        {scopedEvaluations.length === 0 ? (
           <p>
             No hay relevamientos guardados
             todavía.

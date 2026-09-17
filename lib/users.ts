@@ -8,6 +8,7 @@ type UserRow = {
   email: string
   active: boolean
   role_id: User["roleId"]
+  departamento: string | null
   created_at: string
   updated_at: string
 }
@@ -19,6 +20,7 @@ function mapUserRow(row: UserRow): User {
     email: row.email,
     active: row.active,
     roleId: row.role_id,
+    departamento: row.departamento,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -34,6 +36,7 @@ export async function findUserByGoogleSubject(
       email,
       active,
       role_id,
+      departamento,
       created_at,
       updated_at
     FROM users
@@ -57,6 +60,7 @@ export async function findActiveUserByEmail(
       email,
       active,
       role_id,
+      departamento,
       created_at,
       updated_at
     FROM users
@@ -97,6 +101,7 @@ export async function linkGoogleSubject(
       email,
       active,
       role_id,
+      departamento,
       created_at,
       updated_at
   `) as UserRow[]
@@ -105,6 +110,7 @@ export async function linkGoogleSubject(
 
   return row ? mapUserRow(row) : null
 }
+
 export async function findUserByIdentity(
   identity: AuthenticatedIdentity,
 ): Promise<User | null> {
@@ -130,4 +136,54 @@ export async function resolveUserFromIdentity(
     userByEmail.id,
     identity.subject,
   )
+}
+
+export async function createUser({
+  name,
+  email,
+  roleId,
+  departamento,
+}: {
+  name: string
+  email: string
+  roleId: User["roleId"]
+  departamento: string | null
+}): Promise<User> {
+  const id = `user-${crypto.randomUUID()}`
+
+  const rows = (await sql`
+    INSERT INTO users (
+      id,
+      name,
+      email,
+      active,
+      role_id,
+      departamento
+    )
+    VALUES (
+      ${id},
+      ${name},
+      ${email},
+      true,
+      ${roleId},
+      ${departamento}
+    )
+    RETURNING
+      id,
+      name,
+      email,
+      active,
+      role_id,
+      departamento,
+      created_at,
+      updated_at
+  `) as UserRow[]
+
+  const row = rows[0]
+
+  if (!row) {
+    throw new Error("No se pudo crear el usuario.")
+  }
+
+  return mapUserRow(row)
 }

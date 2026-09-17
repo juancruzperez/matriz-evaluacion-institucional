@@ -24,6 +24,7 @@ import { InstitutionSearch } from "@/components/evaluation/InstitutionSearch"
 import { DimensionSection } from "@/components/evaluation/DimensionSection"
 
 const API_TIMEOUT_MS = 15000
+const CLOSE_API_TIMEOUT_MS = 30000
 
 class ApiClientError extends Error {
   kind: "timeout" | "network" | "non-json"
@@ -41,6 +42,7 @@ class ApiClientError extends Error {
 async function requestJson<T>(
   input: RequestInfo | URL,
   init?: RequestInit,
+  timeoutMs = API_TIMEOUT_MS,
 ): Promise<{
   response: Response
   data: T
@@ -48,7 +50,7 @@ async function requestJson<T>(
   const controller = new AbortController()
   const timeoutId = window.setTimeout(
     () => controller.abort(),
-    API_TIMEOUT_MS,
+    timeoutMs,
   )
 
   try {
@@ -146,17 +148,42 @@ function NewEvaluationContent() {
     useState<Institution[]>([])
 
   const [persisted, setPersisted] =
-    useState(false)
+  useState(false)
 
-  const [activeDimension, setActiveDimension] =
-    useState<string | null>(null)
+const [activeDimension, setActiveDimension] =
+  useState<string | null>(null)
 
-  const [loadingEvaluation, setLoadingEvaluation] =
-    useState(false)
+const selectedDimension = useMemo(
+  () =>
+    dimensions.find(
+      (dimension) =>
+        dimension.id === activeDimension,
+    ) ?? null,
+  [activeDimension],
+)
 
-  const [isSaving, setIsSaving] =
-    useState(false)
+useEffect(() => {
+  if (!activeDimension) return
 
+  const timer = window.setTimeout(() => {
+    const element = document.getElementById(
+      `dimension-${activeDimension}`,
+    )
+
+    element?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    })
+  }, 50)
+
+  return () => window.clearTimeout(timer)
+}, [activeDimension])
+
+const [loadingEvaluation, setLoadingEvaluation] =
+  useState(false)
+
+const [isSaving, setIsSaving] =
+  useState(false)
   const [isClosing, setIsClosing] =
     useState(false)
 
@@ -389,7 +416,20 @@ function NewEvaluationContent() {
   async function handleInstitutionChange(
   selected: Institution | null,
 ) {
-  if (!selected || readOnly) {
+  if (readOnly) {
+    return
+  }
+
+  if (!selected) {
+    setEvaluation((current) => ({
+      ...current,
+      institutionId: "",
+      institutionLevelId: null,
+    }))
+
+    setPersisted(false)
+    setLoadError(null)
+
     return
   }
 
@@ -408,13 +448,15 @@ function NewEvaluationContent() {
       )
     }
 
-    const evaluations = data as Evaluation[]
+    const evaluations =
+      data as Evaluation[]
 
-    const openEvaluation = evaluations.find(
-      (item) =>
-        item.institutionId === selected.id &&
-        item.status !== "closed",
-    )
+    const openEvaluation =
+      evaluations.find(
+        (item) =>
+          item.institutionId === selected.id &&
+          item.status !== "closed",
+      )
 
     if (openEvaluation) {
       setRedirectingToOpenEvaluation(true)
@@ -430,6 +472,7 @@ function NewEvaluationContent() {
       ...current,
       institutionId: selected.id,
       institutionLevelId: null,
+      status: "draft",
     }))
 
     setPersisted(false)
@@ -457,7 +500,11 @@ function NewEvaluationContent() {
         evaluation.institutionId,
     ) ?? null
 
-  const isClosed =
+  const evaluationId =
+  searchParams.get("evaluation")
+
+const isClosed =
+  Boolean(evaluationId) &&
   evaluation.status === "closed"
 
 const isInstitutionalReadOnly =
@@ -733,8 +780,9 @@ const readOnly =
 
   setIsClosing(true)
 
+  let currentEvaluation = evaluation
+
   try {
-    let currentEvaluation = evaluation
 
     const payload = {
       institutionId: evaluation.institutionId,
@@ -871,6 +919,7 @@ const readOnly =
             action: "close",
           }),
         },
+        CLOSE_API_TIMEOUT_MS,
       )
 
     if (!closeResponse.ok) {
@@ -894,6 +943,44 @@ const readOnly =
       error,
     )
 
+    /*
+ * El servidor puede haber cerrado el relevamiento aunque
+ * el navegador haya agotado el tiempo de espera. En ese
+ * caso verificamos el estado real en Neon antes de informar
+ * un error al usuario.
+ */
+if (
+  error instanceof ApiClientError &&
+  error.kind === "timeout"
+) {
+  try {
+    const { response, data } =
+      await requestJson<Evaluation>(
+        `/api/evaluations/${currentEvaluation.id}`,
+      )
+
+    if (response.ok) {
+      const serverEvaluation =
+        data as Evaluation
+
+      if (serverEvaluation.status === "closed") {
+        setEvaluation(serverEvaluation)
+        setPersisted(true)
+
+        alert(
+          `Relevamiento cerrado · versión ${serverEvaluation.version}`,
+        )
+
+        return
+      }
+    }
+  } catch (recoveryError) {
+    console.error(
+      "No se pudo verificar el estado del relevamiento después del timeout",
+      recoveryError,
+    )
+  }
+}
     alert(
       getApiErrorMessage(
         error,
@@ -1218,89 +1305,219 @@ const readOnly =
         </div>
       </section>
 
-      <section className="dimensions-nav">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">
-              DIMENSIONES
-            </p>
+      {!activeDimension ? (
+        /*
+         * VISTA GENERAL
+         *
+         * Cuando no hay una dimensión activa,
+         * mostramos todas las dimensiones.
+         */
+        <section className="dimensions-nav">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">
+                DIMENSIONES
+              </p>
 
-            <h2>
-              Seleccioná una dimensión
-            </h2>
+              <h2>
+                Seleccioná una dimensión
+              </h2>
+            </div>
           </div>
-        </div>
 
-        <div className="dimension-tabs">
-          {dimensions.map(
-            (dimension) => (
-              <button
-                key={dimension.id}
-                type="button"
-                className={
-                  activeDimension ===
-                  dimension.id
-                    ? "active"
-                    : ""
+          <div className="dimension-tabs">
+            {dimensions.map(
+              (dimension) => (
+                <button
+                  key={dimension.id}
+                  type="button"
+                  className=""
+                  onClick={() =>
+                    setActiveDimension(
+                      dimension.id,
+                    )
+                  }
+                >
+                  <span>
+                    {dimension.number}
+                  </span>
+
+                  <div>
+                    <strong>
+                      {dimension.title}
+                    </strong>
+
+                    <small>
+                      {
+                        dimension
+                          .indicators
+                          .length
+                      }{" "}
+                      indicadores
+                    </small>
+                  </div>
+
+                  <b aria-hidden="true">
+                    →
+                  </b>
+                </button>
+              ),
+            )}
+          </div>
+        </section>
+      ) : (
+        /*
+         * VISTA DE DIMENSIÓN
+         *
+         * La dimensión activa permanece arriba de
+         * sus indicadores. Debajo aparecen las demás
+         * dimensiones para poder cambiar de contexto
+         * sin tener que volver al inicio.
+         */
+        <section className="active-dimension">
+          <div
+            className="active-dimension-header"
+            style={{
+              position: "sticky",
+              top: "1rem",
+              zIndex: 10,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "1rem",
+              padding: "0.5rem 0",
+              background: "var(--background, #f5f4f5)",
+            }}
+          >
+            <button
+              type="button"
+              className="back-link"
+              onClick={() =>
+                setActiveDimension(null)
+              }
+            >
+              ← Volver a dimensiones
+            </button>
+          </div>
+
+          {selectedDimension && (
+            <>
+              <div className="dimension-tabs active-dimension-tab">
+                <button
+                  type="button"
+                  className="active"
+                  aria-current="page"
+                  onClick={() =>
+                    setActiveDimension(null)
+                  }
+                  title="Cerrar dimensión"
+                >
+                  <span>
+                    {selectedDimension.number}
+                  </span>
+
+                  <div>
+                    <strong>
+                      {selectedDimension.title}
+                    </strong>
+
+                    <small>
+                      {
+                        selectedDimension
+                          .indicators
+                          .length
+                      }{" "}
+                      indicadores
+                    </small>
+                  </div>
+
+                  <b aria-hidden="true">
+                    −
+                  </b>
+                </button>
+              </div>
+
+              <DimensionSection
+                dimension={
+                  selectedDimension
                 }
-                onClick={() =>
-                  setActiveDimension(
-                    activeDimension ===
-                      dimension.id
-                      ? null
-                      : dimension.id,
-                  )
+                responses={
+                  evaluation.responses
                 }
+                onChange={updateResponse}
+                onFieldChange={
+                  updateResponseField
+                }
+                readOnly={readOnly}
+              />
+
+              <div
+                className="dimensions-nav"
+                style={{
+                  marginTop: "2rem",
+                }}
               >
-                <span>
-                  {dimension.number}
-                </span>
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">
+                      DIMENSIONES
+                    </p>
 
-                <div>
-                  <strong>
-                    {dimension.title}
-                  </strong>
-
-                  <small>
-                    {
-                      dimension
-                        .indicators
-                        .length
-                    }{" "}
-                    indicadores
-                  </small>
+                    <h2>
+                      Otras dimensiones
+                    </h2>
+                  </div>
                 </div>
 
-                <b>
-                  {activeDimension ===
-                  dimension.id
-                    ? "−"
-                    : "+"}
-                </b>
-              </button>
-            ),
-          )}
-        </div>
-      </section>
+                <div className="dimension-tabs">
+                  {dimensions
+                    .filter(
+                      (dimension) =>
+                        dimension.id !==
+                        selectedDimension.id,
+                    )
+                    .map(
+                      (dimension) => (
+                        <button
+                          key={dimension.id}
+                          type="button"
+                          className=""
+                          onClick={() =>
+                            setActiveDimension(
+                              dimension.id,
+                            )
+                          }
+                        >
+                          <span>
+                            {dimension.number}
+                          </span>
 
-      {activeDimension && (
-        <DimensionSection
-          dimension={
-            dimensions.find(
-              (dimension) =>
-                dimension.id ===
-                activeDimension,
-            )!
-          }
-          responses={
-            evaluation.responses
-          }
-          onChange={updateResponse}
-          onFieldChange={
-            updateResponseField
-          }
-          readOnly={readOnly}
-        />
+                          <div>
+                            <strong>
+                              {dimension.title}
+                            </strong>
+
+                            <small>
+                              {
+                                dimension
+                                  .indicators
+                                  .length
+                              }{" "}
+                              indicadores
+                            </small>
+                          </div>
+
+                          <b aria-hidden="true">
+                            →
+                          </b>
+                        </button>
+                      ),
+                    )}
+                </div>
+              </div>
+            </>
+          )}
+        </section>
       )}
 
       {!isInstitutionalReadOnly && (
@@ -1366,6 +1583,26 @@ const readOnly =
   )
 }
 
+function NewEvaluationPageContent() {
+  const searchParams = useSearchParams()
+
+  const evaluationId =
+    searchParams.get("evaluation")
+
+  const institutionId =
+    searchParams.get("institution")
+
+  const formKey = evaluationId
+    ? `evaluation:${evaluationId}`
+    : institutionId
+      ? `institution:${institutionId}`
+      : "new"
+
+  return (
+    <NewEvaluationContent key={formKey} />
+  )
+}
+
 export default function NewEvaluationPage() {
   return (
     <Suspense
@@ -1375,7 +1612,7 @@ export default function NewEvaluationPage() {
         </div>
       }
     >
-      <NewEvaluationContent />
+      <NewEvaluationPageContent />
     </Suspense>
   )
 }
