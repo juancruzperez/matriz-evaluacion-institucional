@@ -412,28 +412,68 @@ export default function RelevamientosPage() {
       customTo,
     )
 
-    const result = evaluations
-      // Esta página trabaja exclusivamente con
-      // relevamientos cerrados.
-      .filter(
-        (evaluation) =>
-          evaluation.status === "closed",
-      )
+    const latestByInstitution = new Map<
+  string,
+  Evaluation
+>()
 
-      // Una consulta por institución.
-      .filter((evaluation) => {
-        if (institutionId === "all") {
-          return true
-        }
+for (const evaluation of evaluations) {
+  // Esta página trabaja exclusivamente con
+  // relevamientos cerrados.
+  if (evaluation.status !== "closed") {
+    continue
+  }
 
-        return (
-          evaluation.institutionId ===
-          institutionId
-        )
-      })
+  const current =
+    latestByInstitution.get(
+      evaluation.institutionId,
+    )
 
-      // Filtro territorial.
-      .filter((evaluation) => {
+  if (!current) {
+    latestByInstitution.set(
+      evaluation.institutionId,
+      evaluation,
+    )
+
+    continue
+  }
+
+  const evaluationDate =
+    new Date(evaluation.date).getTime()
+
+  const currentDate =
+    new Date(current.date).getTime()
+
+  const isMoreRecent =
+    evaluationDate > currentDate ||
+    (evaluationDate === currentDate &&
+      evaluation.version > current.version)
+
+  if (isMoreRecent) {
+    latestByInstitution.set(
+      evaluation.institutionId,
+      evaluation,
+    )
+  }
+}
+
+const result = Array.from(
+  latestByInstitution.values(),
+)
+  // Una consulta por institución.
+  .filter((evaluation) => {
+    if (institutionId === "all") {
+      return true
+    }
+
+    return (
+      evaluation.institutionId ===
+      institutionId
+    )
+  })
+
+  // Filtro territorial.
+  .filter((evaluation) => {
         if (territoryFilter === "all") {
           return true
         }
