@@ -878,6 +878,15 @@ export default function InstitutionsPage() {
                     {institution.sector}
                   </p>
 
+                  {(institution.departamento ||
+                    institution.localidad) && (
+                    <p className="institution-territory">
+                      {institution.departamento || "Departamento no disponible"}
+                      {" · "}
+                      {institution.localidad || "Localidad no disponible"}
+                    </p>
+                  )}
+
                   <div className="institution-meta">
                     <span>
                       CUE:{" "}
