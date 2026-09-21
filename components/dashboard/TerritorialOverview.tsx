@@ -7,8 +7,9 @@ import type { Institution } from "@/types/institution"
 import {
   calculateInstitutionAssessment,
   type Criticality,
+  type CriticalityIncidence,
 } from "@/lib/criticality"
-import type { Evaluation } from "@/types/evaluation"
+import type { Evaluation, Urgency } from "@/types/evaluation"
 
 import { CriticalityDonut } from "./CriticalityDonut"
 import { TerritorialMap } from "./TerritorialMap"
@@ -47,6 +48,19 @@ type SectionFeature = {
 type SectionGeoJSON = {
   type: "FeatureCollection"
   features: SectionFeature[]
+}
+
+type IncidenceApiResponse = {
+  id: string
+  institutionId: string
+  evaluationId: string
+  evaluationResponseId: string
+  status: "open" | "resolved"
+  createdAt: string
+  resolvedAt: string | null
+  response?: {
+    urgency?: Urgency | null
+  } | null
 }
 
 function normalizeDepartmentName(
@@ -126,6 +140,9 @@ export function TerritorialOverview({
   const [sections, setSections] =
     useState<SectionGeoJSON | null>(null)
 
+  const [incidences, setIncidences] =
+    useState<CriticalityIncidence[]>([])
+
   /*
    * Filtro efectivo:
    *
@@ -143,6 +160,72 @@ export function TerritorialOverview({
     territorialDepartment
       ? `department:${territorialDepartment}`
       : territoryFilter
+
+  /*
+   * Cargar incidencias.
+   *
+   * Se cargan abiertas y resueltas porque la función
+   * calculateInstitutionAssessment() debe recibir el
+   * historial completo y considerar únicamente las
+   * incidencias abiertas para la criticidad actual.
+   */
+  useEffect(() => {
+    let cancelled = false
+
+    fetch("/api/incidences?status=all")
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(
+            "Incidences request failed",
+          )
+        }
+
+        return response.json()
+      })
+      .then((data) => {
+        if (cancelled) return
+
+        const rows = Array.isArray(data)
+          ? data
+          : data?.incidences ?? []
+
+        setIncidences(
+          (rows as IncidenceApiResponse[]).map(
+            (incidence) => ({
+              id: incidence.id,
+              institutionId:
+                incidence.institutionId,
+              evaluationId:
+                incidence.evaluationId,
+              evaluationResponseId:
+                incidence.evaluationResponseId,
+              status: incidence.status,
+              createdAt:
+                incidence.createdAt,
+              resolvedAt:
+                incidence.resolvedAt,
+              urgency:
+                incidence.response?.urgency ??
+                null,
+            }),
+          ),
+        )
+      })
+      .catch((error) => {
+        console.error(
+          "Error cargando incidencias:",
+          error,
+        )
+
+        if (!cancelled) {
+          setIncidences([])
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -311,11 +394,13 @@ export function TerritorialOverview({
           calculateInstitutionAssessment(
             institution.id,
             evaluations,
+            incidences,
           ),
       ),
     [
       filteredInstitutions,
       evaluations,
+      incidences,
     ],
   )
 

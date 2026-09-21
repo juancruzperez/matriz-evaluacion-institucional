@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { Institution } from "@/types/institution"
 
 type Props = {
@@ -18,6 +18,33 @@ export function InstitutionSearch({
 }: Props) {
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
+  const searchRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleOutsideClick(event: MouseEvent) {
+      const target = event.target
+
+      if (
+        target instanceof Node &&
+        searchRef.current &&
+        !searchRef.current.contains(target)
+      ) {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener(
+      "mousedown",
+      handleOutsideClick,
+    )
+
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleOutsideClick,
+      )
+    }
+  }, [])
 
   const results = useMemo(() => {
     const normalized = query
@@ -51,7 +78,10 @@ export function InstitutionSearch({
   }, [institutions, query])
 
   return (
-    <div className="search-field">
+    <div
+      className="search-field"
+      ref={searchRef}
+    >
       <label htmlFor="institution-search">
         Institución <span>*</span>
       </label>
@@ -62,7 +92,11 @@ export function InstitutionSearch({
           value={value ? value.name : query}
           placeholder="Buscar por nombre, CUE, dirección..."
           disabled={disabled}
-          onFocus={() => !disabled && setOpen(true)}
+          onFocus={() => {
+            if (!disabled) {
+              setOpen(true)
+            }
+          }}
           onChange={(event) => {
             onChange(null)
             setQuery(event.target.value)
@@ -105,6 +139,17 @@ export function InstitutionSearch({
                   {item.address} ·{" "}
                   {item.cue || "CUE no disponible"}
                 </span>
+
+                {(item.departamento ||
+                  item.localidad) && (
+                  <small>
+                    {item.departamento ||
+                      "Departamento no disponible"}
+                    {" · "}
+                    {item.localidad ||
+                      "Localidad no disponible"}
+                  </small>
+                )}
               </button>
             ))
           ) : (
