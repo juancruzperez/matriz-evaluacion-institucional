@@ -599,8 +599,25 @@ export async function POST(
 
   let closedRow: EvaluationRow | undefined
 
+  /*
+   * El cierre del relevamiento y la creación
+   * de sus incidencias se realizan dentro de
+   * una única transacción.
+   *
+   * De esta manera:
+   *
+   * - un relevamiento no puede quedar cerrado
+   *   sin sus incidencias;
+   * - cada respuesta con urgencia genera una
+   *   incidencia abierta;
+   * - una respuesta sin urgencia no genera
+   *   incidencia;
+   * - el UNIQUE de incidences.evaluation_response_id
+   *   evita duplicaciones.
+   */
   try {
-    const closedRows = (await sql`
+  const transactionResults = await sql.transaction([
+    sql`
       UPDATE evaluations
       SET
         status = 'closed',
@@ -624,24 +641,53 @@ export async function POST(
         created_at,
         updated_at,
         closed_at
-    `) as EvaluationRow[]
+    `,
 
-    closedRow = closedRows[0]
-  } catch (error) {
-    console.error(
-      "Failed to close evaluation",
-      error,
-    )
+    sql`
+      INSERT INTO incidences (
+        id,
+        evaluation_response_id,
+        evaluation_id,
+        institution_id,
+        status,
+        updated_by
+      )
+      SELECT
+        gen_random_uuid()::text,
+        er.id,
+        er.evaluation_id,
+        e.institution_id,
+        'open',
+        ${userId}
+      FROM evaluation_responses er
+      INNER JOIN evaluations e
+        ON e.id = er.evaluation_id
+      WHERE er.evaluation_id = ${id}
+        AND er.urgency IS NOT NULL
+      ON CONFLICT (evaluation_response_id)
+      DO NOTHING
+    `,
+  ])
 
-    return Response.json(
-      {
-        error: "Unable to close evaluation",
-      },
-      {
-        status: 500,
-      },
-    )
-  }
+  const closedRows =
+    transactionResults[0] as EvaluationRow[]
+
+  closedRow = closedRows[0]
+} catch (error) {
+  console.error(
+    "Failed to close evaluation",
+    error,
+  )
+
+  return Response.json(
+    {
+      error: "Unable to close evaluation",
+    },
+    {
+      status: 500,
+    },
+  )
+}
 
   const responseRows = (await sql`
     SELECT
