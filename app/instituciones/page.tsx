@@ -2,13 +2,12 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { dimensions } from "@/lib/evaluation-template"
 import {
   calculateInstitutionAssessment,
   URGENCY_WEIGHT,
   type Criticality,
+  type CriticalityIncidence,
 } from "@/lib/criticality"
-import { getEvaluationResponse } from "@/lib/evaluation-responses"
 import type { Evaluation, Urgency } from "@/types/evaluation"
 import type { Institution } from "@/types/institution"
 
@@ -105,82 +104,6 @@ function criticalityFromScore(score: number | null): Criticality {
   return "baja"
 }
 
-function dimensionAssessment(
-  evaluation: Evaluation,
-  dimensionId: string,
-) {
-  const dimension = dimensions.find((item) => item.id === dimensionId)
-
-  if (!dimension) return null
-
-  const values = dimension.indicators
-    .map(
-      (indicator) =>
-        getEvaluationResponse(
-          evaluation.responses,
-          indicator.id,
-        )?.urgency,
-    )
-    .filter((urgency): urgency is Urgency => Boolean(urgency))
-    .map((urgency) => urgencyWeight[urgency])
-
-  const score = values.length
-    ? values.reduce((sum, value) => sum + value, 0) / values.length
-    : null
-
-  return {
-    score,
-    criticality: criticalityFromScore(score),
-  }
-}
-
-function dimensionEntries(
-  evaluation: Evaluation,
-  dimensionId: string,
-) {
-  const dimension = dimensions.find((item) => item.id === dimensionId)
-
-  if (!dimension) return []
-
-  return dimension.indicators.flatMap((indicator) => {
-    const response = getEvaluationResponse(
-      evaluation.responses,
-      indicator.id,
-    )
-
-    if (!response) return []
-
-    const fields = Object.entries(response.fields ?? {})
-      .map(
-        ([key, value]) =>
-          `${key}: ${Array.isArray(value) ? value.join(", ") : value}`,
-      )
-      .filter((value) => !value.endsWith(": "))
-
-    const entries: string[] = []
-
-    if (response.observation.trim()) {
-      entries.push(response.observation.trim())
-    }
-
-    if (response.strengths?.trim()) {
-      entries.push(`Fortaleza: ${response.strengths.trim()}`)
-    }
-
-    if (fields.length) {
-      entries.push(fields.join(" · "))
-    }
-
-    if (response.urgency) {
-      entries.push(`Urgencia: ${urgencyLabel(response.urgency)}`)
-    }
-
-    return entries.length
-      ? [{ indicator: indicator.title, entries }]
-      : []
-  })
-}
-
 function googleMapsUrl(
   latitude: number | null,
   longitude: number | null,
@@ -194,9 +117,40 @@ function googleMapsUrl(
   )}`
 }
 
+type InstitutionIncidence = CriticalityIncidence & {
+  resolutionDescription: string | null
+  observation: string
+  indicatorName: string
+  dimensionName: string
+}
+
+type IncidenceApiResponse = {
+  id: string
+  institutionId: string
+  evaluationId: string
+  evaluationResponseId: string
+  status: "open" | "resolved"
+  resolutionDescription: string | null
+  createdAt: string
+  resolvedAt: string | null
+  response?: {
+    urgency?: Urgency | null
+    observation?: string | null
+  } | null
+  indicator?: {
+    id: string | null
+    name: string | null
+  } | null
+  dimension?: {
+    name: string | null
+  } | null
+}
+
 export default function InstitutionsPage() {
   const [institutions, setInstitutions] = useState<Institution[]>([])
   const [evaluations, setEvaluations] = useState<Evaluation[]>([])
+  const [incidences, setIncidences] =
+    useState<InstitutionIncidence[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [institutionsLoading, setInstitutionsLoading] = useState(true)
   const [institutionsError, setInstitutionsError] =
@@ -223,11 +177,15 @@ export default function InstitutionsPage() {
         const [
           institutionsResponse,
           evaluationsResponse,
+          incidencesResponse,
         ] = await Promise.all([
           fetch("/api/institutions", {
             signal: controller.signal,
           }),
           fetch("/api/evaluations", {
+            signal: controller.signal,
+          }),
+          fetch("/api/incidences?status=all", {
             signal: controller.signal,
           }),
         ])
@@ -244,12 +202,20 @@ export default function InstitutionsPage() {
           )
         }
 
+        if (!incidencesResponse.ok) {
+          throw new Error(
+            "No se pudieron cargar las incidencias",
+          )
+        }
+
         const [
           institutionsData,
           evaluationsData,
+          incidencesData,
         ] = await Promise.all([
           institutionsResponse.json() as Promise<Institution[]>,
           evaluationsResponse.json() as Promise<Evaluation[]>,
+          incidencesResponse.json(),
         ])
 
         if (controller.signal.aborted) {
@@ -263,6 +229,37 @@ export default function InstitutionsPage() {
             ...evaluation,
             status: evaluation.status ?? "draft",
           })),
+        )
+
+        const incidenceRows = Array.isArray(incidencesData)
+          ? incidencesData
+          : incidencesData?.incidences ?? []
+
+        setIncidences(
+          (incidenceRows as IncidenceApiResponse[]).map(
+            (incidence) => ({
+              id: incidence.id,
+              institutionId: incidence.institutionId,
+              evaluationId: incidence.evaluationId,
+              evaluationResponseId:
+                incidence.evaluationResponseId,
+              status: incidence.status,
+              createdAt: incidence.createdAt,
+              resolvedAt: incidence.resolvedAt,
+              urgency:
+                incidence.response?.urgency ?? null,
+              resolutionDescription:
+                incidence.resolutionDescription ?? null,
+              observation:
+                incidence.response?.observation?.trim() ?? "",
+              indicatorName:
+                incidence.indicator?.name ??
+                "Indicador no disponible",
+              dimensionName:
+                incidence.dimension?.name ??
+                "Dimensión no disponible",
+            }),
+          ),
         )
       } catch (error) {
         if (controller.signal.aborted) {
@@ -295,6 +292,7 @@ export default function InstitutionsPage() {
         assessment: calculateInstitutionAssessment(
           institution.id,
           evaluations,
+          incidences,
         ),
         institutionEvaluations: evaluations
           .filter(
@@ -321,7 +319,7 @@ export default function InstitutionsPage() {
           (a.assessment.score ?? -1)
         )
       })
-  }, [evaluations, institutions])
+  }, [evaluations, institutions, incidences])
 
   const normalizeSearchText = (value: string) =>
     value
@@ -523,6 +521,110 @@ export default function InstitutionsPage() {
 
   return (
     <main className="shell">
+      <style jsx>{`
+        .context-incidence-count {
+          font-size: 0.8rem;
+          color: #667077;
+          font-weight: 600;
+        }
+
+        .institution-incidences {
+          display: grid;
+          gap: 0.7rem;
+        }
+
+        .institution-incidence {
+          border: 1px solid #e3e0e6;
+          border-left: 4px solid #52606a;
+          background: #ffffff;
+          padding: 0.85rem 1rem;
+        }
+
+        .institution-incidence.is-resolved {
+          border-color: #d5d5d5;
+          border-left-color: #9aa0a6;
+          background: #f3f3f2;
+        }
+
+        .institution-incidence-heading {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 1rem;
+        }
+
+        .institution-incidence-heading > div {
+          min-width: 0;
+          display: grid;
+          gap: 0.2rem;
+        }
+
+        .institution-incidence-heading strong {
+          font-size: 0.95rem;
+          line-height: 1.4;
+        }
+
+        .institution-incidence-dimension {
+          font-size: 0.72rem;
+          line-height: 1.3;
+          color: #667077;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          font-weight: 700;
+        }
+
+        .institution-incidence-status {
+          flex-shrink: 0;
+          display: inline-flex;
+          align-items: center;
+          min-height: 28px;
+          padding: 0.25rem 0.7rem;
+          border-radius: 999px;
+          font-size: 0.76rem;
+          font-weight: 700;
+        }
+
+        .institution-incidence-status.alta {
+          background: #bf1363;
+          color: #ffffff;
+        }
+
+        .institution-incidence-status.media {
+          background: #ffe066;
+          color: #230c0f;
+        }
+
+        .institution-incidence-status.baja {
+          background: #43aa8b;
+          color: #ffffff;
+        }
+
+        .institution-incidence-status.resolved {
+          background: #e3e0e6;
+          color: #52606a;
+        }
+
+        .institution-incidence-meta {
+          display: grid;
+          gap: 0.35rem;
+          margin-top: 0.7rem;
+          padding-top: 0.65rem;
+          border-top: 1px solid #e3e0e6;
+          color: #52606a;
+          font-size: 0.82rem;
+          line-height: 1.5;
+        }
+
+        @media (max-width: 640px) {
+          .institution-incidence-heading {
+            flex-direction: column;
+          }
+
+          .institution-incidence-status {
+            align-self: flex-start;
+          }
+        }
+      `}</style>
       <header className="topbar">
         <div>
           <Link className="back-link" href="/">
@@ -645,10 +747,10 @@ export default function InstitutionsPage() {
                 <select
                   value={departamentoFilter}
                   onChange={(event) => {
-                  const value = event.target.value
-                  setDepartamentoFilter(value)
-                  setLocalidadFilter("todas")
-                }}
+                    const value = event.target.value
+                    setDepartamentoFilter(value)
+                    setLocalidadFilter("todas")
+                  }}
                 >
                   <option value="todos">Todos</option>
 
@@ -681,12 +783,14 @@ export default function InstitutionsPage() {
                   {filterOptions.localidades
                     .filter(
                       (localidad) =>
-                        departamentoFilter === "todas" ||
+                        departamentoFilter === "todos" ||
                         institutions.some(
                           (institution) =>
-                            institution.departamento === departamentoFilter &&
-                            institution.localidad === localidad
-                        )
+                            institution.departamento ===
+                              departamentoFilter &&
+                            institution.localidad ===
+                              localidad,
+                        ),
                     )
                     .map((localidad) => (
                       <option
@@ -695,8 +799,7 @@ export default function InstitutionsPage() {
                       >
                         {localidad}
                       </option>
-                    ),
-                  )}
+                    ))}
                 </select>
               </label>
 
@@ -828,6 +931,38 @@ export default function InstitutionsPage() {
               institution.longitude,
             )
 
+            const institutionIncidences =
+              incidences
+                .filter(
+                  (incidence) =>
+                    incidence.institutionId === institution.id,
+                )
+                .sort((a, b) => {
+                  if (a.status !== b.status) {
+                    return a.status === "open" ? -1 : 1
+                  }
+
+                  if (a.status === "open") {
+                    const urgencyA =
+                      a.urgency
+                        ? urgencyWeight[a.urgency]
+                        : 0
+                    const urgencyB =
+                      b.urgency
+                        ? urgencyWeight[b.urgency]
+                        : 0
+
+                    if (urgencyA !== urgencyB) {
+                      return urgencyB - urgencyA
+                    }
+                  }
+
+                  return (
+                    new Date(b.resolvedAt ?? b.createdAt).getTime() -
+                    new Date(a.resolvedAt ?? a.createdAt).getTime()
+                  )
+                })
+
             return (
               <article
                 className={`institution-card-wrap ${
@@ -881,9 +1016,11 @@ export default function InstitutionsPage() {
                   {(institution.departamento ||
                     institution.localidad) && (
                     <p className="institution-territory">
-                      {institution.departamento || "Departamento no disponible"}
+                      {institution.departamento ||
+                        "Departamento no disponible"}
                       {" · "}
-                      {institution.localidad || "Localidad no disponible"}
+                      {institution.localidad ||
+                        "Localidad no disponible"}
                     </p>
                   )}
 
@@ -1160,158 +1297,105 @@ export default function InstitutionsPage() {
 
                     <div className="context-block">
                       <div className="context-block-heading">
-                        <h3>Situación actual</h3>
-
-                        <span
-                          className={`criticality-badge ${assessment.criticality}`}
-                        >
-                          {criticalityLabel(
-                            assessment.criticality,
-                          )}
+                        <h3>Incidencias</h3>
+                        <span className="context-incidence-count">
+                          {institutionIncidences.length}{" "}
+                          {institutionIncidences.length === 1
+                            ? "incidencia"
+                            : "incidencias"}
                         </span>
                       </div>
 
-                      <div className="dimension-status-grid">
-                        {dimensions.map((dimension) => {
-                          const latestForDimension =
-                            institutionEvaluations
-                              .map(
-                                (evaluation) => ({
-                                  evaluation,
-                                  assessment:
-                                    dimensionAssessment(
-                                      evaluation,
-                                      dimension.id,
-                                    ),
-                                }),
-                              )
-                              .find(
-                                (item) =>
-                                  item.assessment
-                                    ?.score !== null,
-                              )
-
-                          const current =
-                            latestForDimension?.assessment ??
-                            null
-
-                          return (
-                            <div
-                              className="dimension-status"
-                              key={dimension.id}
-                            >
-                              <span>
-                                {dimension.title}
-                              </span>
-
-                              <strong
-                                className={`status-text ${
-                                  current?.criticality ??
-                                  "sin-relevamiento"
-                                }`}
-                              >
-                                {criticalityLabel(
-                                  current?.criticality ??
-                                    "sin-relevamiento",
-                                )}
-                              </strong>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-
-                    <div className="context-block">
-                      <h3>
-                        Información derivada de los
-                        relevamientos
-                      </h3>
-
-                      {institutionEvaluations.length ===
-                      0 ? (
+                      {institutionIncidences.length === 0 ? (
                         <p className="muted">
-                          Todavía no hay información
-                          derivada.
+                          No hay incidencias registradas para la institución.
                         </p>
                       ) : (
-                        <div className="derived-grid">
-                          {dimensions.map((dimension) => {
-                            const entries =
-                              institutionEvaluations.flatMap(
-                                (evaluation) =>
-                                  dimensionEntries(
-                                    evaluation,
-                                    dimension.id,
-                                  ).map((entry) => ({
-                                    ...entry,
-                                    date: evaluation.date,
-                                    version:
-                                      evaluation.version,
-                                  })),
-                              )
+                        <div className="institution-incidences">
+                          {institutionIncidences.map((incidence) => {
+                            const isResolved =
+                              incidence.status === "resolved"
+                            const incidenceCriticality =
+                              incidence.urgency
+                                ? criticalityFromScore(
+                                    urgencyWeight[incidence.urgency],
+                                  )
+                                : "sin-relevamiento"
 
                             return (
                               <article
-                                className="derived-dimension"
-                                key={dimension.id}
+                                className={`institution-incidence ${
+                                  isResolved ? "is-resolved" : ""
+                                }`}
+                                key={incidence.id}
                               >
-                                <h4>
-                                  {dimension.title}
-                                </h4>
+                                <div className="institution-incidence-main">
+                                  <div className="institution-incidence-heading">
+                                    <div>
+                                      <span className="institution-incidence-dimension">
+                                        {incidence.dimensionName}
+                                      </span>
+                                      <strong>
+                                        {incidence.indicatorName}
+                                      </strong>
+                                    </div>
 
-                                {entries.length === 0 ? (
-                                  <p className="muted">
-                                    Sin observaciones
-                                    registradas.
-                                  </p>
-                                ) : (
-                                  entries
-                                    .slice(0, 8)
-                                    .map(
-                                      (
-                                        entry,
-                                        index,
-                                      ) => (
-                                        <div
-                                          className="derived-entry"
-                                          key={`${entry.date}-${entry.version}-${entry.indicator}-${index}`}
-                                        >
-                                          <strong>
-                                            {
-                                              entry.indicator
-                                            }
-                                          </strong>
+                                    <span
+                                      className={`institution-incidence-status ${
+                                        isResolved
+                                          ? "resolved"
+                                          : incidenceCriticality
+                                      }`}
+                                    >
+                                      {isResolved
+                                        ? "Resuelto"
+                                        : criticalityLabel(
+                                            incidenceCriticality,
+                                          )}
+                                    </span>
+                                  </div>
 
-                                          <small>
+                                  <div className="institution-incidence-meta">
+                                    <span>
+                                      <strong>Detalle:</strong>{" "}
+                                      {incidence.observation ||
+                                        "Sin detalle registrado."}
+                                    </span>
+
+                                    <span>
+                                      {isResolved
+                                        ? <>
+                                            <strong>
+                                              Fecha de resolución:
+                                            </strong>{" "}
                                             {formatDate(
-                                              entry.date,
-                                            )}{" "}
-                                            · v
-                                            {
-                                              entry.version
-                                            }
-                                          </small>
-
-                                          <ul>
-                                            {entry.entries.map(
-                                              (
-                                                text,
-                                                textIndex,
-                                              ) => (
-                                                <li
-                                                  key={
-                                                    textIndex
-                                                  }
-                                                >
-                                                  {text}
-                                                </li>
-                                              ),
+                                              incidence.resolvedAt ??
+                                                incidence.createdAt,
                                             )}
-                                          </ul>
-                                        </div>
-                                      ),
-                                    )
-                                )}
+                                          </>
+                                        : <>
+                                            <strong>Registrada:</strong>{" "}
+                                            {formatDate(incidence.createdAt)}
+                                            {" · "}
+                                            {incidence.urgency
+                                              ? `Urgencia: ${urgencyLabel(
+                                                  incidence.urgency,
+                                                )}`
+                                              : "Sin urgencia registrada"}
+                                          </>}
+                                    </span>
+
+                                    {isResolved && (
+                                      <span>
+                                        <strong>
+                                          Cómo se solucionó:
+                                        </strong>{" "}
+                                        {incidence.resolutionDescription?.trim() ||
+                                          "Sin descripción de resolución."}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
                               </article>
                             )
                           })}
@@ -1320,88 +1404,91 @@ export default function InstitutionsPage() {
                     </div>
 
                     <div className="context-block">
-                      <h3>
-                        Evolución por relevamiento
-                      </h3>
+                      <div className="context-block-heading">
+                        <h3>Evolución de incidencias</h3>
+                        <span className="context-incidence-count">
+                          {institutionIncidences.length}{" "}
+                          {institutionIncidences.length === 1
+                            ? "incidencia"
+                            : "incidencias"}
+                        </span>
+                      </div>
 
-                      {institutionEvaluations.length <
-                      2 ? (
+                      {institutionIncidences.length === 0 ? (
                         <p className="muted">
-                          Se necesitan al menos dos
-                          relevamientos para mostrar
-                          evolución.
+                          No hay incidencias para mostrar en la evolución.
                         </p>
                       ) : (
                         <div className="evolution-table-wrap">
                           <table className="evolution-table">
                             <thead>
                               <tr>
-                                <th>Dimensión</th>
-                                <th>
-                                  {formatDate(
-                                    institutionEvaluations[1]
-                                      .date,
-                                  )}
-                                </th>
-                                <th>
-                                  {formatDate(
-                                    institutionEvaluations[0]
-                                      .date,
-                                  )}
-                                </th>
+                                <th>Indicador</th>
+                                <th>Origen</th>
+                                <th>Resolución</th>
+                                <th>Estado</th>
                               </tr>
                             </thead>
 
                             <tbody>
-                              {dimensions.map(
-                                (dimension) => {
-                                  const previous =
-                                    dimensionAssessment(
-                                      institutionEvaluations[1],
-                                      dimension.id,
-                                    )?.criticality ??
-                                    "sin-relevamiento"
+                              {institutionIncidences.map((incidence) => {
+                                const isResolved =
+                                  incidence.status === "resolved"
 
-                                  const current =
-                                    dimensionAssessment(
-                                      institutionEvaluations[0],
-                                      dimension.id,
-                                    )?.criticality ??
-                                    "sin-relevamiento"
+                                return (
+                                  <tr key={incidence.id}>
+                                    <td>
+                                      <strong>
+                                        {incidence.indicatorName}
+                                      </strong>
+                                      <small>
+                                        {incidence.dimensionName}
+                                      </small>
+                                    </td>
 
-                                  return (
-                                    <tr
-                                      key={dimension.id}
-                                    >
-                                      <td>
-                                        {
-                                          dimension.title
-                                        }
-                                      </td>
+                                    <td>
+                                      {formatDate(incidence.createdAt)}
+                                    </td>
 
-                                      <td>
-                                        <span
-                                          className={`status-text ${previous}`}
-                                        >
-                                          {criticalityLabel(
-                                            previous,
-                                          )}
-                                        </span>
-                                      </td>
+                                    <td>
+                                      {isResolved
+                                        ? formatDate(
+                                            incidence.resolvedAt ??
+                                              incidence.createdAt,
+                                          )
+                                        : "Pendiente"}
+                                    </td>
 
-                                      <td>
-                                        <span
-                                          className={`status-text ${current}`}
-                                        >
-                                          {criticalityLabel(
-                                            current,
-                                          )}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  )
-                                },
-                              )}
+                                    <td>
+                                      <span
+                                        className={`status-text ${
+                                          isResolved
+                                            ? "resolved"
+                                            : incidence.urgency
+                                              ? criticalityFromScore(
+                                                  urgencyWeight[
+                                                    incidence.urgency
+                                                  ],
+                                                )
+                                              : "sin-relevamiento"
+                                        }`}
+                                      >
+                                        {isResolved
+                                          ? "Resuelto"
+                                          : incidence.urgency
+                                            ? criticalityLabel(
+                                                criticalityFromScore(
+                                                  urgencyWeight[
+                                                    incidence.urgency
+                                                  ],
+                                                ),
+                                              )
+                                            : "Sin urgencia"}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
                             </tbody>
                           </table>
                         </div>

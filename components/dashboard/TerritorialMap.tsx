@@ -25,9 +25,10 @@ import {
   calculateInstitutionAssessment,
   calculateTerritorialAssessment,
   type Criticality,
+  type CriticalityIncidence,
   type TerritorialAssessment,
 } from "@/lib/criticality"
-import type { Evaluation } from "@/types/evaluation"
+import type { Evaluation, Urgency } from "@/types/evaluation"
 
 type DepartmentFeature = {
   type: "Feature"
@@ -60,6 +61,19 @@ type SectionGeoJSON = {
 }
 
 type SectionStats = TerritorialAssessment
+
+type IncidenceApiResponse = {
+  id: string
+  institutionId: string
+  evaluationId: string
+  evaluationResponseId: string
+  status: "open" | "resolved"
+  createdAt: string
+  resolvedAt: string | null
+  response?: {
+    urgency?: Urgency | null
+  } | null
+}
 
 const COLORS: Record<Criticality, string> = {
   alta: "#BF1363",
@@ -327,6 +341,9 @@ export function TerritorialMap({
   const [geographyError, setGeographyError] =
     useState(false)
 
+  const [incidences, setIncidences] =
+    useState<CriticalityIncidence[]>([])
+
   /*
    * GeoJSON derivado exclusivamente para la
    * visualización de Capital.
@@ -338,6 +355,71 @@ export function TerritorialMap({
         : null,
     [sections],
   )
+
+  /*
+   * Cargar incidencias.
+   *
+   * Se utilizan todas las incidencias porque
+   * calculateInstitutionAssessment() se encarga
+   * de considerar solamente las que permanecen
+   * abiertas para la criticidad actual.
+   */
+  useEffect(() => {
+    let cancelled = false
+
+    fetch("/api/incidences?status=all")
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(
+            "Incidences request failed",
+          )
+        }
+
+        return response.json()
+      })
+      .then((data) => {
+        if (cancelled) return
+
+        const rows = Array.isArray(data)
+          ? data
+          : data?.incidences ?? []
+
+        setIncidences(
+          (rows as IncidenceApiResponse[]).map(
+            (incidence) => ({
+              id: incidence.id,
+              institutionId:
+                incidence.institutionId,
+              evaluationId:
+                incidence.evaluationId,
+              evaluationResponseId:
+                incidence.evaluationResponseId,
+              status: incidence.status,
+              createdAt: incidence.createdAt,
+              resolvedAt:
+                incidence.resolvedAt,
+              urgency:
+                incidence.response?.urgency ??
+                null,
+            }),
+          ),
+        )
+      })
+      .catch((error) => {
+        console.error(
+          "Error cargando incidencias:",
+          error,
+        )
+
+        if (!cancelled) {
+          setIncidences([])
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   /*
    * Cargar departamentos.
@@ -419,8 +501,8 @@ export function TerritorialMap({
    * Se calcula para cada institución utilizando
    * exclusivamente la función centralizada.
    *
-   * Esto será utilizado cuando el mapa entre en
-   * una vista departamental o de circuito.
+   * La criticidad actual depende de las incidencias
+   * abiertas.
    */
   const assessments = useMemo(
     () =>
@@ -430,9 +512,10 @@ export function TerritorialMap({
           calculateInstitutionAssessment(
             institution.id,
             evaluations,
+            incidences,
           ),
       })),
-    [institutions, evaluations],
+    [institutions, evaluations, incidences],
   )
 
   /*
@@ -445,10 +528,9 @@ export function TerritorialMap({
    *
    * calculateTerritorialAssessment:
    * - considera las instituciones contenidas;
-   * - utiliza solamente relevamientos cerrados;
-   * - no diluye el score con instituciones pendientes;
-   * - calcula el score promedio de las instituciones
-   *   relevadas.
+   * - utiliza las incidencias abiertas para la
+   *   criticidad actual;
+   * - no diluye el score con instituciones pendientes.
    */
   const departmentStats = useMemo(() => {
     const grouped =
@@ -481,12 +563,13 @@ export function TerritorialMap({
         calculateTerritorialAssessment(
           departmentInstitutions,
           evaluations,
+          incidences,
         ),
       )
     }
 
     return stats
-  }, [institutions, evaluations])
+  }, [institutions, evaluations, incidences])
 
   /*
    * --------------------------------------------------
@@ -522,22 +605,22 @@ export function TerritorialMap({
       }
 
       const latitude = institution.latitude
-const longitude = institution.longitude
+      const longitude = institution.longitude
 
-if (
-  latitude === null ||
-  longitude === null
-) {
-  continue
-}
+      if (
+        latitude === null ||
+        longitude === null
+      ) {
+        continue
+      }
 
-const section = sections.features.find(
-  (feature) =>
-    booleanPointInPolygon(
-      [longitude, latitude],
-      feature as never,
-    ),
-)
+      const section = sections.features.find(
+        (feature) =>
+          booleanPointInPolygon(
+            [longitude, latitude],
+            feature as never,
+          ),
+      )
 
       const sectionNumber =
         section?.properties?.NUMERO
@@ -571,12 +654,18 @@ const section = sections.features.find(
         calculateTerritorialAssessment(
           sectionInstitutions,
           evaluations,
+          incidences,
         ),
       )
     }
 
     return stats
-  }, [institutions, evaluations, sections])
+  }, [
+    institutions,
+    evaluations,
+    incidences,
+    sections,
+  ])
 
   /*
    * Diagnóstico de desarrollo.
@@ -875,7 +964,7 @@ const section = sections.features.find(
    */
   const showCapitalSections =
     territoryFilter ===
-      "department:Capital"
+    "department:Capital"
 
   const visibleInstitutionAssessments =
     useMemo(() => {

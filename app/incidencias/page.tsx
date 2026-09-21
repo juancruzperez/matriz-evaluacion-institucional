@@ -5,15 +5,9 @@ import { useEffect, useMemo, useState } from "react"
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon"
 
 import {
-  criticalityFromScore,
-  URGENCY_WEIGHT,
   type Criticality,
 } from "@/lib/criticality"
 import { dimensions } from "@/lib/evaluation-template"
-import type {
-  Evaluation,
-  EvaluationResponse,
-} from "@/types/evaluation"
 import type { Institution } from "@/types/institution"
 
 type TerritoryFilter =
@@ -43,16 +37,51 @@ type SectionGeoJSON = {
   features: SectionFeature[]
 }
 
-type Incidence = {
-  evaluation: Evaluation
-  response: EvaluationResponse
-  institution: Institution | undefined
+type IncidenceApiResponse = {
+  id: string
+  evaluationResponseId: string
+  evaluationId: string
+  institutionId: string
+  status: "open" | "resolved"
+  resolutionDescription: string | null
+  createdAt: string
+  resolvedAt: string | null
+  response: {
+    urgency: "alto" | "medio" | "bajo" | null
+    observation: string
+    strengths: string | null
+    fields: Record<string, string | string[]> | null
+  }
+  evaluation: {
+    date: string
+    closedAt: string | null
+  }
+  institution: {
+    id: string
+    name: string
+    cue: string
+    localidad: string | null
+    departamento: string | null
+  }
+  indicator: {
+    id: string | null
+    name: string | null
+  }
+  dimension: {
+    name: string | null
+  }
+}
+
+type IncidenceResponse = IncidenceApiResponse["response"]
+
+type Incidence = IncidenceApiResponse & {
   criticality: Criticality
   dimensionNumber: string
   dimensionTitle: string
   indicatorTitle: string
   indicatorDescription: string
 }
+
 
 const CRITICALITY_ORDER: Record<Criticality, number> = {
   alta: 0,
@@ -177,20 +206,8 @@ function getDateRange(
   }
 }
 
-function getResponseCriticality(
-  response: EvaluationResponse,
-): Criticality {
-  if (!response.urgency) {
-    return "sin-relevamiento"
-  }
-
-  return criticalityFromScore(
-    URGENCY_WEIGHT[response.urgency],
-  )
-}
-
 function getResponseContext(
-  response: EvaluationResponse,
+  response: IncidenceResponse,
 ) {
   const context: string[] = []
 
@@ -233,11 +250,11 @@ function getResponseContext(
 }
 
 export default function IncidenciasPage() {
-  const [evaluations, setEvaluations] =
-    useState<Evaluation[]>([])
-
   const [institutions, setInstitutions] =
     useState<Institution[]>([])
+
+  const [incidences, setIncidences] =
+    useState<Incidence[]>([])
 
   const [sections, setSections] =
     useState<SectionGeoJSON | null>(null)
@@ -278,11 +295,11 @@ export default function IncidenciasPage() {
         setError(null)
 
         const [
-          evaluationsResponse,
+          incidencesResponse,
           institutionsResponse,
           sectionsResponse,
         ] = await Promise.all([
-          fetch("/api/evaluations", {
+          fetch("/api/incidences?status=all", {
             cache: "no-store",
             signal: controller.signal,
           }),
@@ -301,9 +318,9 @@ export default function IncidenciasPage() {
           ),
         ])
 
-        if (!evaluationsResponse.ok) {
+        if (!incidencesResponse.ok) {
           throw new Error(
-            "No se pudieron cargar los relevamientos.",
+            "No se pudieron cargar las incidencias.",
           )
         }
 
@@ -319,8 +336,8 @@ export default function IncidenciasPage() {
           )
         }
 
-        const evaluationsData =
-          (await evaluationsResponse.json()) as Evaluation[]
+        const incidencesData =
+          (await incidencesResponse.json()) as IncidenceApiResponse[]
 
         const institutionsData =
           (await institutionsResponse.json()) as Institution[]
@@ -332,7 +349,51 @@ export default function IncidenciasPage() {
           return
         }
 
-        setEvaluations(evaluationsData)
+        const mappedIncidences: Incidence[] =
+          incidencesData.map((item) => {
+            const dimension =
+              dimensions.find(
+                (candidate) =>
+                  candidate.title ===
+                  item.dimension.name,
+              )
+
+            const indicator = dimension?.indicators.find(
+              (candidate) =>
+                candidate.id === item.indicator.id ||
+                candidate.title === item.indicator.name,
+            )
+
+            const urgency = item.response.urgency
+
+            const criticality: Criticality =
+              urgency
+                ? urgency === "alto"
+                  ? "alta"
+                  : urgency === "medio"
+                    ? "media"
+                    : "baja"
+                : "sin-relevamiento"
+
+            return {
+              ...item,
+              criticality,
+              dimensionNumber: dimension?.number ?? "",
+              dimensionTitle:
+                dimension?.title ??
+                item.dimension.name ??
+                "Dimensión no disponible",
+              indicatorTitle:
+                indicator?.title ??
+                item.indicator.name ??
+                "Indicador no disponible",
+              indicatorDescription:
+                indicator?.description ??
+                "Sin descripción disponible.",
+            }
+          })
+
+        setIncidences(mappedIncidences)
         setInstitutions(institutionsData)
         setSections(sectionsData)
       } catch (err) {
@@ -363,6 +424,7 @@ export default function IncidenciasPage() {
       controller.abort()
     }
   }, [])
+
 
   const filteredInstitutions = useMemo(() => {
     const normalized = query
@@ -519,320 +581,132 @@ export default function IncidenciasPage() {
       return "Toda la provincia"
     }, [territoryFilter])
 
-  /*
-   * Primero obtenemos el último relevamiento
-   * cerrado de cada institución.
-   *
-   * Recién después desagregamos sus respuestas
-   * para construir las incidencias.
-   */
-  const latestByInstitution = useMemo(() => {
-    const latest =
-      new Map<string, Evaluation>()
-
-    for (const evaluation of evaluations) {
-      if (
-        evaluation.status !== "closed"
-      ) {
-        continue
-      }
-
-      const current =
-        latest.get(
-          evaluation.institutionId,
-        )
-
-      if (!current) {
-        latest.set(
-          evaluation.institutionId,
-          evaluation,
-        )
-
-        continue
-      }
-
-      const evaluationDate =
-        new Date(
-          evaluation.date,
-        ).getTime()
-
-      const currentDate =
-        new Date(
-          current.date,
-        ).getTime()
-
-      const isMoreRecent =
-        evaluationDate > currentDate ||
-        (evaluationDate ===
-          currentDate &&
-          evaluation.version >
-            current.version)
-
-      if (isMoreRecent) {
-        latest.set(
-          evaluation.institutionId,
-          evaluation,
-        )
-      }
-    }
-
-    return latest
-  }, [evaluations])
-
-  const incidences = useMemo(() => {
+  const filteredIncidences = useMemo(() => {
     const dateRange = getDateRange(
       timeFilter,
       customFrom,
       customTo,
     )
 
-    const result: Incidence[] = []
-
-    for (const evaluation of latestByInstitution.values()) {
-      /*
-       * Filtro por institución.
-       */
-      if (
-        institutionId !== "all" &&
-        evaluation.institutionId !==
-          institutionId
-      ) {
-        continue
-      }
-
-      const institution =
-        institutions.find(
-          (item) =>
-            item.id ===
-            evaluation.institutionId,
-        )
+    const result = incidences.filter((incidence) => {
+      const institution = institutions.find(
+        (item) => item.id === incidence.institutionId,
+      )
 
       if (!institution) {
-        continue
+        return false
       }
 
-      /*
-       * Filtro territorial.
-       */
       if (
-        territoryFilter !== "all"
+        institutionId !== "all" &&
+        incidence.institutionId !== institutionId
       ) {
-        if (
-          territoryFilter.startsWith(
-            "department:",
-          )
-        ) {
+        return false
+      }
+
+      if (territoryFilter !== "all") {
+        if (territoryFilter.startsWith("department:")) {
           const selectedDepartment =
-            territoryFilter.slice(
-              "department:".length,
-            )
+            territoryFilter.slice("department:".length)
 
           if (
             normalizeDepartmentName(
               institution.departamento,
             ) !==
-            normalizeDepartmentName(
-              selectedDepartment,
-            )
+            normalizeDepartmentName(selectedDepartment)
           ) {
-            continue
+            return false
           }
         }
 
-        if (
-          territoryFilter.startsWith(
-            "circuit:",
-          )
-        ) {
+        if (territoryFilter.startsWith("circuit:")) {
           if (
             normalizeDepartmentName(
               institution.departamento,
             ) !== "capital"
           ) {
-            continue
+            return false
           }
 
-          const selectedCircuit =
-            Number(
-              territoryFilter.slice(
-                "circuit:".length,
-              ),
-            )
+          const selectedCircuit = Number(
+            territoryFilter.slice("circuit:".length),
+          )
 
           if (
-            institutionCircuitMap.get(
-              institution.id,
-            ) !== selectedCircuit
+            institutionCircuitMap.get(institution.id) !==
+            selectedCircuit
           ) {
-            continue
+            return false
           }
         }
       }
 
-      /*
-       * El filtro temporal se aplica
-       * al último relevamiento cerrado
-       * de la institución.
-       */
-      if (dateRange) {
-        const closedDate =
-          evaluation.closedAt
-
-        if (!closedDate) {
-          continue
-        }
-
-        const parsed =
-          new Date(closedDate)
-
-        if (
-          Number.isNaN(
-            parsed.getTime(),
-          )
-        ) {
-          continue
-        }
-
-        if (
-          dateRange.from &&
-          parsed < dateRange.from
-        ) {
-          continue
-        }
-
-        if (
-          dateRange.to &&
-          parsed > dateRange.to
-        ) {
-          continue
-        }
-      }
-
-      /*
-       * Una incidencia corresponde a una
-       * respuesta que tenga una criticidad
-       * explícita.
-       *
-       * Por lo tanto:
-       *
-       * alto  → Alta
-       * medio → Media
-       * bajo  → Baja
-       *
-       * Las respuestas sin urgency no generan
-       * una incidencia.
-       */
-      for (const response of evaluation.responses) {
-        if (!response.urgency) {
-          continue
-        }
-
-        const criticality =
-          getResponseCriticality(
-            response,
-          )
-
-        if (
-          criticalityFilter !==
-            "all" &&
-          criticality !==
-            criticalityFilter
-        ) {
-          continue
-        }
-
-        const dimension =
-          dimensions.find((item) =>
-            item.indicators.some(
-              (indicator) =>
-                indicator.id ===
-                response.indicatorId,
-            ),
-          )
-
-        if (!dimension) {
-          continue
-        }
-
-        const indicator =
-          dimension.indicators.find(
-            (item) =>
-              item.id ===
-              response.indicatorId,
-          )
-
-        if (!indicator) {
-          continue
-        }
-
-        result.push({
-          evaluation,
-          response,
-          institution,
-          criticality,
-          dimensionNumber:
-            dimension.number,
-          dimensionTitle:
-            dimension.title,
-          indicatorTitle:
-            indicator.title,
-          indicatorDescription:
-            indicator.description,
-        })
-      }
-    }
-
-    /*
-     * Orden:
-     *
-     * 1. Alta
-     * 2. Media
-     * 3. Baja
-     *
-     * Dentro de la misma criticidad,
-     * primero los relevamientos más recientes.
-     */
-    result.sort((a, b) => {
-      const criticalityDifference =
-        CRITICALITY_ORDER[
-          a.criticality
-        ] -
-        CRITICALITY_ORDER[
-          b.criticality
-        ]
-
       if (
-        criticalityDifference !== 0
+        criticalityFilter !== "all" &&
+        incidence.criticality !== criticalityFilter
       ) {
-        return criticalityDifference
+        return false
+      }
+
+      if (dateRange) {
+        const referenceDate =
+          incidence.evaluation.closedAt ??
+          incidence.evaluation.date
+
+        const parsed = new Date(referenceDate)
+
+        if (Number.isNaN(parsed.getTime())) {
+          return false
+        }
+
+        if (dateRange.from && parsed < dateRange.from) {
+          return false
+        }
+
+        if (dateRange.to && parsed > dateRange.to) {
+          return false
+        }
+      }
+
+      return true
+    })
+
+    result.sort((a, b) => {
+      if (a.status !== b.status) {
+        return a.status === "open" ? -1 : 1
+      }
+
+      if (a.status === "open") {
+        const criticalityDifference =
+          CRITICALITY_ORDER[a.criticality] -
+          CRITICALITY_ORDER[b.criticality]
+
+        if (criticalityDifference !== 0) {
+          return criticalityDifference
+        }
       }
 
       const dateA = new Date(
-        a.evaluation.closedAt ??
-          a.evaluation.date,
+        a.evaluation.closedAt ?? a.evaluation.date,
       ).getTime()
 
       const dateB = new Date(
-        b.evaluation.closedAt ??
-          b.evaluation.date,
+        b.evaluation.closedAt ?? b.evaluation.date,
       ).getTime()
 
       if (dateA !== dateB) {
         return dateB - dateA
       }
 
-      return (
-        a.institution?.name ??
-        ""
-      ).localeCompare(
-        b.institution?.name ?? "",
+      return a.institution.name.localeCompare(
+        b.institution.name,
         "es",
       )
     })
 
     return result
   }, [
-    latestByInstitution,
+    incidences,
     institutions,
     institutionId,
     territoryFilter,
@@ -842,6 +716,7 @@ export default function IncidenciasPage() {
     customFrom,
     customTo,
   ])
+
 
   const clearFilters = () => {
     setTerritoryFilter("all")
@@ -920,6 +795,16 @@ export default function IncidenciasPage() {
           border-left: 5px solid;
           background: #ffffff;
           min-height: 190px;
+        }
+
+        .incidence-card.is-resolved {
+          background: #f3f3f2;
+          opacity: 0.9;
+        }
+
+        .incidence-card.is-resolved .incidence-institution-name,
+        .incidence-card.is-resolved .incidence-indicator {
+          color: #52606a;
         }
 
         .incidence-column {
@@ -1008,6 +893,21 @@ export default function IncidenciasPage() {
           border-radius: 999px;
           font-size: 0.8rem;
           font-weight: 600;
+        }
+
+        .incidence-resolution {
+          display: grid;
+          gap: 0.8rem;
+          padding: 0.8rem 0;
+          border-top: 1px solid #d4d1d7;
+        }
+
+        .incidence-resolution-date,
+        .incidence-resolution-description {
+          margin: 0.2rem 0 0;
+          color: #52606a;
+          font-size: 0.85rem;
+          line-height: 1.5;
         }
 
         .incidence-footer {
@@ -1399,9 +1299,9 @@ export default function IncidenciasPage() {
           </span>
 
           <span>
-            {incidences.length}{" "}
+            {filteredIncidences.length}{" "}
             incidencia
-            {incidences.length === 1
+            {filteredIncidences.length === 1
               ? ""
               : "s"}
           </span>
@@ -1416,16 +1316,16 @@ export default function IncidenciasPage() {
             </p>
 
             <h2>
-              {incidences.length}{" "}
+              {filteredIncidences.length}{" "}
               incidencia
-              {incidences.length === 1
+              {filteredIncidences.length === 1
                 ? ""
                 : "s"}
             </h2>
           </div>
 
           <span className="muted">
-            Alta → Media → Baja
+            Abiertas → Resueltas
           </span>
         </div>
 
@@ -1437,7 +1337,7 @@ export default function IncidenciasPage() {
           <p>
             {error}
           </p>
-        ) : incidences.length === 0 ? (
+        ) : filteredIncidences.length === 0 ? (
           <p className="muted">
             No hay incidencias que
             coincidan con los filtros
@@ -1445,7 +1345,7 @@ export default function IncidenciasPage() {
           </p>
         ) : (
           <div className="incidence-list">
-            {incidences.map(
+            {filteredIncidences.map(
               (incidence) => {
                 const {
                   evaluation,
@@ -1456,6 +1356,9 @@ export default function IncidenciasPage() {
                   dimensionTitle,
                   indicatorTitle,
                   indicatorDescription,
+                  status,
+                  resolutionDescription,
+                  resolvedAt,
                 } = incidence
 
                 const context =
@@ -1463,9 +1366,15 @@ export default function IncidenciasPage() {
                     response,
                   )
 
+                const isResolved =
+                  status === "resolved"
+
                 const territory =
                   getInstitutionTerritory(
-                    institution,
+                    institutions.find(
+                      (item) =>
+                        item.id === incidence.institutionId,
+                    ),
                   )
 
                 const criticalityColor =
@@ -1475,11 +1384,14 @@ export default function IncidenciasPage() {
 
                 return (
                   <article
-                    className="incidence-card"
-                    key={`${evaluation.id}-${response.id}`}
+                    className={`incidence-card ${
+                      isResolved ? "is-resolved" : ""
+                    }`}
+                    key={incidence.id}
                     style={{
-                      borderLeftColor:
-                        criticalityColor,
+                      borderLeftColor: isResolved
+                        ? "#9aa0a6"
+                        : criticalityColor,
                     }}
                   >
                     {/* =====================================================
@@ -1594,26 +1506,31 @@ export default function IncidenciasPage() {
                     <div className="incidence-column incidence-result">
                       <div>
                         <span className="incidence-context-label">
-                          Criticidad
+                          {isResolved
+                            ? "Estado"
+                            : "Criticidad"}
                         </span>
 
                         <span
-                          className="incidence-criticality"
+                          className={`incidence-criticality ${
+                            isResolved
+                              ? "is-resolved"
+                              : ""
+                          }`}
                           style={{
-                            backgroundColor:
-                              criticalityColor,
-                            color:
-                              criticality ===
-                              "media"
+                            backgroundColor: isResolved
+                              ? "#e3e0e6"
+                              : criticalityColor,
+                            color: isResolved
+                              ? "#52606a"
+                              : criticality === "media"
                                 ? "#230C0F"
                                 : "#ffffff",
                           }}
                         >
-                          {
-                            CRITICALITY_LABELS[
-                              criticality
-                            ]
-                          }
+                          {isResolved
+                            ? "Resuelto"
+                            : CRITICALITY_LABELS[criticality]}
                         </span>
                       </div>
 
@@ -1632,7 +1549,7 @@ export default function IncidenciasPage() {
                               ) => (
                                 <p
                                   className="incidence-context"
-                                  key={`${response.id}-context-${index}`}
+                                  key={`${incidence.evaluationResponseId}-context-${index}`}
                                   style={{
                                     margin:
                                       index ===
@@ -1660,6 +1577,29 @@ export default function IncidenciasPage() {
                         )}
                       </div>
 
+                      {isResolved && (
+                        <div className="incidence-resolution">
+                          <div>
+                            <span className="incidence-context-label">
+                              Fecha de resolución
+                            </span>
+                            <p className="incidence-resolution-date">
+                              {formatDate(resolvedAt)}
+                            </p>
+                          </div>
+
+                          <div>
+                            <span className="incidence-context-label">
+                              Descripción de resolución
+                            </span>
+                            <p className="incidence-resolution-description">
+                              {resolutionDescription?.trim() ||
+                                "Sin descripción de resolución."}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="incidence-footer">
                         <span className="incidence-date">
                           Relevamiento
@@ -1672,7 +1612,7 @@ export default function IncidenciasPage() {
 
                         <Link
                           className="incidence-link"
-                          href={`/relevamientos/nuevo?evaluation=${evaluation.id}`}
+                          href={`/relevamientos/nuevo?evaluation=${incidence.evaluationId}`}
                         >
                           Consultar
                           relevamiento

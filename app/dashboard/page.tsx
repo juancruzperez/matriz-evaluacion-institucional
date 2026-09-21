@@ -5,8 +5,11 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 
 import type { Institution } from "@/types/institution"
-import type { Evaluation } from "@/types/evaluation"
-import { calculateInstitutionAssessment } from "@/lib/criticality"
+import type { Evaluation, Urgency } from "@/types/evaluation"
+import {
+  calculateInstitutionAssessment,
+  type CriticalityIncidence,
+} from "@/lib/criticality"
 
 const TerritorialOverview = dynamic(
   () =>
@@ -30,12 +33,28 @@ type SessionUser = {
   departamento?: string | null
 }
 
+type IncidenceApiResponse = {
+  id: string
+  institutionId: string
+  evaluationId: string
+  evaluationResponseId: string
+  status: "open" | "resolved"
+  createdAt: string
+  resolvedAt: string | null
+  response?: {
+    urgency?: Urgency | null
+  } | null
+}
+
 export default function Dashboard() {
   const [evaluations, setEvaluations] =
     useState<Evaluation[]>([])
 
   const [institutions, setInstitutions] =
     useState<Institution[]>([])
+
+  const [incidences, setIncidences] =
+    useState<CriticalityIncidence[]>([])
 
   const [sessionUser, setSessionUser] =
     useState<SessionUser | null>(null)
@@ -46,12 +65,13 @@ export default function Dashboard() {
   useEffect(() => {
     let cancelled = false
 
-    async function loadEvaluations() {
+    async function loadDashboardData() {
       try {
         const [
           evaluationsResponse,
           institutionsResponse,
           sessionResponse,
+          incidencesResponse,
         ] = await Promise.all([
           fetch("/api/evaluations", {
             cache: "no-store",
@@ -60,6 +80,9 @@ export default function Dashboard() {
             cache: "no-store",
           }),
           fetch("/api/auth/session", {
+            cache: "no-store",
+          }),
+          fetch("/api/incidences?status=all", {
             cache: "no-store",
           }),
         ])
@@ -72,6 +95,9 @@ export default function Dashboard() {
 
         const sessionData =
           await sessionResponse.json()
+
+        const incidencesData =
+          await incidencesResponse.json()
 
         if (!evaluationsResponse.ok) {
           throw new Error(
@@ -90,6 +116,13 @@ export default function Dashboard() {
         if (!sessionResponse.ok) {
           throw new Error(
             "No se pudo cargar la sesión.",
+          )
+        }
+
+        if (!incidencesResponse.ok) {
+          throw new Error(
+            incidencesData?.error ??
+              "No se pudieron cargar las incidencias.",
           )
         }
 
@@ -113,11 +146,37 @@ export default function Dashboard() {
         setInstitutions(
           institutionsData as Institution[],
         )
+
+        const incidenceRows =
+          Array.isArray(incidencesData)
+            ? incidencesData
+            : incidencesData?.incidences ?? []
+
+        setIncidences(
+          (incidenceRows as IncidenceApiResponse[]).map(
+            (incidence) => ({
+              id: incidence.id,
+              institutionId:
+                incidence.institutionId,
+              evaluationId:
+                incidence.evaluationId,
+              evaluationResponseId:
+                incidence.evaluationResponseId,
+              status: incidence.status,
+              createdAt: incidence.createdAt,
+              resolvedAt:
+                incidence.resolvedAt,
+              urgency:
+                incidence.response?.urgency ??
+                null,
+            }),
+          ),
+        )
       } catch (error) {
         if (cancelled) return
 
         console.error(
-          "Error al cargar relevamientos",
+          "Error al cargar datos del dashboard",
           error,
         )
       } finally {
@@ -127,7 +186,7 @@ export default function Dashboard() {
       }
     }
 
-    void loadEvaluations()
+    void loadDashboardData()
 
     return () => {
       cancelled = true
@@ -169,6 +228,29 @@ export default function Dashboard() {
     isTerritorialResponsible,
   ])
 
+  const scopedIncidences = useMemo(() => {
+    if (!isTerritorialResponsible) {
+      return incidences
+    }
+
+    const institutionIds = new Set(
+      institutions.map(
+        (institution) => institution.id,
+      ),
+    )
+
+    return incidences.filter(
+      (incidence) =>
+        institutionIds.has(
+          incidence.institutionId,
+        ),
+    )
+  }, [
+    incidences,
+    institutions,
+    isTerritorialResponsible,
+  ])
+
   const draftEvaluations = useMemo(() => {
     return scopedEvaluations.filter(
       (evaluation) =>
@@ -186,21 +268,26 @@ export default function Dashboard() {
 
   /*
    * La situación territorial se calcula sobre las
-   * instituciones y los relevamientos actuales
-   * provenientes de Neon.
+   * instituciones, los relevamientos y las
+   * incidencias actualmente abiertas.
    *
    * La criticidad individual se encuentra
    * centralizada en lib/criticality.ts.
    */
   const assessments = useMemo(() => {
-    return institutions.map(
-      (institution) =>
-        calculateInstitutionAssessment(
-          institution.id,
-          evaluations,
-        ),
-    )
-  }, [institutions, evaluations])
+  return institutions.map(
+    (institution) =>
+      calculateInstitutionAssessment(
+        institution.id,
+        scopedEvaluations,
+        scopedIncidences,
+      ),
+  )
+}, [
+  institutions,
+  scopedEvaluations,
+  scopedIncidences,
+])
 
   /*
    * Total de instituciones que forman parte
