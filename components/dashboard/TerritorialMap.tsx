@@ -70,6 +70,7 @@ type IncidenceApiResponse = {
   status: "open" | "resolved"
   createdAt: string
   resolvedAt: string | null
+  currentUrgency?: Urgency | null
   response?: {
     urgency?: Urgency | null
   } | null
@@ -398,8 +399,8 @@ export function TerritorialMap({
               createdAt: incidence.createdAt,
               resolvedAt:
                 incidence.resolvedAt,
-              urgency:
-                incidence.response?.urgency ??
+              currentUrgency:
+                incidence.currentUrgency ??
                 null,
             }),
           ),

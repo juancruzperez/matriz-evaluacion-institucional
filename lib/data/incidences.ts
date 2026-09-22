@@ -13,6 +13,20 @@ export type IncidenceScope = {
   departamento?: string | null
 }
 
+export type IncidenceUrgency =
+  | "alto"
+  | "medio"
+  | "bajo"
+
+export type IncidenceUrgencyHistory = {
+  id: string
+  previousUrgency: IncidenceUrgency | null
+  newUrgency: IncidenceUrgency
+  changedAt: string
+  changedBy: string
+  reason: string | null
+}
+
 export type Incidence = {
   id: string
   evaluationResponseId: string
@@ -28,8 +42,12 @@ export type Incidence = {
   updatedAt: string
   updatedBy: string
 
+  /**
+   * Urgencia original registrada en la evaluación.
+   * No debe modificarse.
+   */
   response: {
-    urgency: "alto" | "medio" | "bajo" | null
+    urgency: IncidenceUrgency | null
     observation: string
     strengths: string | null
     fields: Record<
@@ -37,6 +55,17 @@ export type Incidence = {
       string | string[]
     > | null
   }
+
+  /**
+   * Urgencia actual de gestión de la incidencia.
+   * Puede cambiar durante el seguimiento.
+   */
+  currentUrgency: IncidenceUrgency
+
+  /**
+   * Historial de cambios de urgencia.
+   */
+  urgencyHistory: IncidenceUrgencyHistory[]
 
   evaluation: {
     date: string
@@ -77,10 +106,14 @@ type IncidenceRow = {
   updated_by: string
 
   urgency:
-    | "alto"
-    | "medio"
-    | "bajo"
+    | IncidenceUrgency
     | null
+
+  current_urgency:
+    IncidenceUrgency
+
+  urgency_history:
+    IncidenceUrgencyHistory[]
 
   observation: string
   strengths: string | null
@@ -142,6 +175,12 @@ function mapIncidenceRow(
       fields: row.fields,
     },
 
+    currentUrgency:
+      row.current_urgency,
+
+    urgencyHistory:
+      row.urgency_history ?? [],
+
     evaluation: {
       date: row.evaluation_date,
       closedAt:
@@ -169,6 +208,75 @@ function mapIncidenceRow(
   }
 }
 
+const incidenceSelect = sql`
+  SELECT
+    inc.id,
+    inc.evaluation_response_id,
+    inc.evaluation_id,
+    inc.institution_id,
+    inc.status,
+    inc.resolution_description,
+    inc.created_at,
+    inc.resolved_at,
+    inc.resolved_by,
+    inc.updated_at,
+    inc.updated_by,
+
+    er.urgency,
+    inc.current_urgency,
+
+    COALESCE(
+      (
+        SELECT json_agg(
+          json_build_object(
+            'id', h.id,
+            'previousUrgency', h.previous_urgency,
+            'newUrgency', h.new_urgency,
+            'changedAt', h.changed_at,
+            'changedBy', h.changed_by,
+            'reason', h.reason
+          )
+          ORDER BY h.changed_at ASC, h.id ASC
+        )
+        FROM incidence_urgency_history h
+        WHERE h.incidence_id = inc.id
+      ),
+      '[]'::json
+    ) AS urgency_history,
+
+    er.observation,
+    er.strengths,
+    er.fields,
+
+    e.date AS evaluation_date,
+    e.closed_at AS evaluation_closed_at,
+
+    i.name AS institution_name,
+    i.cue AS institution_cue,
+    i.localidad AS institution_localidad,
+    i.departamento AS institution_departamento,
+
+    ind.title AS indicator_name,
+    d.name AS dimension_name
+
+  FROM incidences inc
+
+  INNER JOIN evaluation_responses er
+    ON er.id = inc.evaluation_response_id
+
+  INNER JOIN evaluations e
+    ON e.id = inc.evaluation_id
+
+  INNER JOIN institutions i
+    ON i.id = inc.institution_id
+
+  LEFT JOIN indicators ind
+    ON ind.id = er.indicator_id
+
+  LEFT JOIN dimensions d
+    ON d.id = ind.dimension_id
+`
+
 export async function getIncidences(
   scope: IncidenceScope = {},
   status: IncidenceStatusFilter = "all",
@@ -185,51 +293,7 @@ export async function getIncidences(
 
     if (status === "all") {
       rows = (await sql`
-        SELECT
-          inc.id,
-          inc.evaluation_response_id,
-          inc.evaluation_id,
-          inc.institution_id,
-          inc.status,
-          inc.resolution_description,
-          inc.created_at,
-          inc.resolved_at,
-          inc.resolved_by,
-          inc.updated_at,
-          inc.updated_by,
-
-          er.urgency,
-          er.observation,
-          er.strengths,
-          er.fields,
-
-          e.date AS evaluation_date,
-          e.closed_at AS evaluation_closed_at,
-
-          i.name AS institution_name,
-          i.cue AS institution_cue,
-          i.localidad AS institution_localidad,
-          i.departamento AS institution_departamento,
-
-          ind.title AS indicator_name,
-          d.name AS dimension_name
-
-        FROM incidences inc
-
-        INNER JOIN evaluation_responses er
-          ON er.id = inc.evaluation_response_id
-
-        INNER JOIN evaluations e
-          ON e.id = inc.evaluation_id
-
-        INNER JOIN institutions i
-          ON i.id = inc.institution_id
-
-        LEFT JOIN indicators ind
-          ON ind.id = er.indicator_id
-
-        LEFT JOIN dimensions d
-          ON d.id = ind.dimension_id
+        ${incidenceSelect}
 
         WHERE i.departamento =
           ${scope.departamento}
@@ -244,51 +308,7 @@ export async function getIncidences(
       `) as IncidenceRow[]
     } else {
       rows = (await sql`
-        SELECT
-          inc.id,
-          inc.evaluation_response_id,
-          inc.evaluation_id,
-          inc.institution_id,
-          inc.status,
-          inc.resolution_description,
-          inc.created_at,
-          inc.resolved_at,
-          inc.resolved_by,
-          inc.updated_at,
-          inc.updated_by,
-
-          er.urgency,
-          er.observation,
-          er.strengths,
-          er.fields,
-
-          e.date AS evaluation_date,
-          e.closed_at AS evaluation_closed_at,
-
-          i.name AS institution_name,
-          i.cue AS institution_cue,
-          i.localidad AS institution_localidad,
-          i.departamento AS institution_departamento,
-
-          ind.title AS indicator_name,
-          d.name AS dimension_name
-
-        FROM incidences inc
-
-        INNER JOIN evaluation_responses er
-          ON er.id = inc.evaluation_response_id
-
-        INNER JOIN evaluations e
-          ON e.id = inc.evaluation_id
-
-        INNER JOIN institutions i
-          ON i.id = inc.institution_id
-
-        LEFT JOIN indicators ind
-          ON ind.id = er.indicator_id
-
-        LEFT JOIN dimensions d
-          ON d.id = ind.dimension_id
+        ${incidenceSelect}
 
         WHERE i.departamento =
           ${scope.departamento}
@@ -301,51 +321,7 @@ export async function getIncidences(
   } else {
     if (status === "all") {
       rows = (await sql`
-        SELECT
-          inc.id,
-          inc.evaluation_response_id,
-          inc.evaluation_id,
-          inc.institution_id,
-          inc.status,
-          inc.resolution_description,
-          inc.created_at,
-          inc.resolved_at,
-          inc.resolved_by,
-          inc.updated_at,
-          inc.updated_by,
-
-          er.urgency,
-          er.observation,
-          er.strengths,
-          er.fields,
-
-          e.date AS evaluation_date,
-          e.closed_at AS evaluation_closed_at,
-
-          i.name AS institution_name,
-          i.cue AS institution_cue,
-          i.localidad AS institution_localidad,
-          i.departamento AS institution_departamento,
-
-          ind.title AS indicator_name,
-          d.name AS dimension_name
-
-        FROM incidences inc
-
-        INNER JOIN evaluation_responses er
-          ON er.id = inc.evaluation_response_id
-
-        INNER JOIN evaluations e
-          ON e.id = inc.evaluation_id
-
-        INNER JOIN institutions i
-          ON i.id = inc.institution_id
-
-        LEFT JOIN indicators ind
-          ON ind.id = er.indicator_id
-
-        LEFT JOIN dimensions d
-          ON d.id = ind.dimension_id
+        ${incidenceSelect}
 
         ORDER BY
           CASE inc.status
@@ -357,51 +333,7 @@ export async function getIncidences(
       `) as IncidenceRow[]
     } else {
       rows = (await sql`
-        SELECT
-          inc.id,
-          inc.evaluation_response_id,
-          inc.evaluation_id,
-          inc.institution_id,
-          inc.status,
-          inc.resolution_description,
-          inc.created_at,
-          inc.resolved_at,
-          inc.resolved_by,
-          inc.updated_at,
-          inc.updated_by,
-
-          er.urgency,
-          er.observation,
-          er.strengths,
-          er.fields,
-
-          e.date AS evaluation_date,
-          e.closed_at AS evaluation_closed_at,
-
-          i.name AS institution_name,
-          i.cue AS institution_cue,
-          i.localidad AS institution_localidad,
-          i.departamento AS institution_departamento,
-
-          ind.title AS indicator_name,
-          d.name AS dimension_name
-
-        FROM incidences inc
-
-        INNER JOIN evaluation_responses er
-          ON er.id = inc.evaluation_response_id
-
-        INNER JOIN evaluations e
-          ON e.id = inc.evaluation_id
-
-        INNER JOIN institutions i
-          ON i.id = inc.institution_id
-
-        LEFT JOIN indicators ind
-          ON ind.id = er.indicator_id
-
-        LEFT JOIN dimensions d
-          ON d.id = ind.dimension_id
+        ${incidenceSelect}
 
         WHERE inc.status = ${status}
 

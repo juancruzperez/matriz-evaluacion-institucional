@@ -1,7 +1,10 @@
 import type { Evaluation, Urgency } from "@/types/evaluation"
 import type { Institution } from "@/types/institution"
 
-export const URGENCY_WEIGHT: Record<Urgency, number> = {
+export const URGENCY_WEIGHT: Record<
+  Urgency,
+  number
+> = {
   alto: 1,
   medio: 0.5,
   bajo: 0.25,
@@ -21,7 +24,15 @@ export type CriticalityIncidence = {
   id: string
   institutionId: string
   status: IncidenceStatus
-  urgency: Urgency | null
+
+  /**
+   * Urgencia ACTUAL de la incidencia.
+   *
+   * No representa la urgencia original
+   * registrada en la evaluación.
+   */
+  currentUrgency: Urgency | null
+
   createdAt: string
   resolvedAt: string | null
   evaluationId: string
@@ -66,7 +77,6 @@ export function criticalityFromScore(
   return "baja"
 }
 
-
 /**
  * Calcula la criticidad actual de una institución
  * a partir de sus incidencias ABIERTAS.
@@ -80,9 +90,16 @@ export function criticalityFromScore(
  * Solamente las incidencias con estado "open"
  * participan del cálculo.
  *
- * Una incidencia resuelta permanece en el historial,
- * pero deja de afectar la criticidad institucional
- * actual.
+ * La urgencia utilizada es siempre
+ * `currentUrgency`, es decir, la situación
+ * actual de gestión de la incidencia.
+ *
+ * La urgencia original de la evaluación
+ * no interviene en este cálculo.
+ *
+ * Una incidencia resuelta permanece en el
+ * historial, pero deja de afectar la
+ * criticidad institucional actual.
  */
 export function calculateInstitutionAssessment(
   institutionId: string,
@@ -103,14 +120,14 @@ export function calculateInstitutionAssessment(
         incidence.institutionId ===
           institutionId &&
         incidence.status === "open" &&
-        incidence.urgency !== null,
+        incidence.currentUrgency !== null,
     )
 
   const scores =
     institutionIncidences.map(
       (incidence) =>
         URGENCY_WEIGHT[
-          incidence.urgency as Urgency
+          incidence.currentUrgency as Urgency
         ],
     )
 
@@ -125,7 +142,9 @@ export function calculateInstitutionAssessment(
       lastDate:
         institutionEvaluations.length > 0
           ? institutionEvaluations
-              .map((item) => item.date)
+              .map(
+                (item) => item.date,
+              )
               .sort()
               .at(-1) ?? null
           : null,
@@ -149,7 +168,9 @@ export function calculateInstitutionAssessment(
     indicatorCount: scores.length,
     lastDate:
       institutionEvaluations
-        .map((item) => item.date)
+        .map(
+          (item) => item.date,
+        )
         .sort()
         .at(-1) ?? null,
   }
@@ -163,7 +184,8 @@ export function calculateInstitutionAssessment(
  * - instituciones de un departamento -> departamento
  *
  * La criticidad de cada institución se obtiene
- * exclusivamente a partir de sus incidencias abiertas.
+ * exclusivamente a partir de sus incidencias
+ * abiertas y de su `currentUrgency`.
  *
  * Las instituciones sin incidencias abiertas no
  * modifican el score territorial.

@@ -199,6 +199,7 @@ export default function InstitutionsPage() {
       resolutionDescription: string | null
       createdAt: string
       resolvedAt: string | null
+      currentUrgency?: Urgency | null
       response?: {
         urgency?: Urgency | null
         observation?: string | null
@@ -218,7 +219,7 @@ export default function InstitutionsPage() {
       status: incidence.status,
       createdAt: incidence.createdAt,
       resolvedAt: incidence.resolvedAt,
-      urgency: incidence.response?.urgency ?? null,
+      currentUrgency: incidence.currentUrgency ?? null,
       resolutionDescription:
         incidence.resolutionDescription ?? null,
       observation:
@@ -910,12 +911,12 @@ export default function InstitutionsPage() {
 
                   if (a.status === "open") {
                     const urgencyA =
-                      a.urgency
-                        ? urgencyWeight[a.urgency]
+                      a.currentUrgency
+                        ? urgencyWeight[a.currentUrgency]
                         : 0
                     const urgencyB =
-                      b.urgency
-                        ? urgencyWeight[b.urgency]
+                      b.currentUrgency
+                        ? urgencyWeight[b.currentUrgency]
                         : 0
 
                     if (urgencyA !== urgencyB) {
@@ -1282,9 +1283,9 @@ export default function InstitutionsPage() {
                             const isResolved =
                               incidence.status === "resolved"
                             const incidenceCriticality =
-                              incidence.urgency
+                              incidence.currentUrgency
                                 ? criticalityFromScore(
-                                    urgencyWeight[incidence.urgency],
+                                    urgencyWeight[incidence.currentUrgency],
                                   )
                                 : "sin-relevamiento"
 
@@ -1343,9 +1344,9 @@ export default function InstitutionsPage() {
                                             <strong>Registrada:</strong>{" "}
                                             {formatDate(incidence.createdAt)}
                                             {" · "}
-                                            {incidence.urgency
+                                            {incidence.currentUrgency
                                               ? `Urgencia: ${urgencyLabel(
-                                                  incidence.urgency,
+                                                  incidence.currentUrgency,
                                                 )}`
                                               : "Sin urgencia registrada"}
                                           </>}
@@ -1430,10 +1431,10 @@ export default function InstitutionsPage() {
                                         className={`status-text ${
                                           isResolved
                                             ? "resolved"
-                                            : incidence.urgency
+                                            : incidence.currentUrgency
                                               ? criticalityFromScore(
                                                   urgencyWeight[
-                                                    incidence.urgency
+                                                    incidence.currentUrgency
                                                   ],
                                                 )
                                               : "sin-relevamiento"
@@ -1441,11 +1442,11 @@ export default function InstitutionsPage() {
                                       >
                                         {isResolved
                                           ? "Resuelto"
-                                          : incidence.urgency
+                                          : incidence.currentUrgency
                                             ? criticalityLabel(
                                                 criticalityFromScore(
                                                   urgencyWeight[
-                                                    incidence.urgency
+                                                    incidence.currentUrgency
                                                   ],
                                                 ),
                                               )

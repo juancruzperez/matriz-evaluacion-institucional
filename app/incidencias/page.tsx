@@ -49,16 +49,32 @@ type IncidenceApiResponse = {
   resolutionDescription: string | null
   createdAt: string
   resolvedAt: string | null
+
+  currentUrgency: "alto" | "medio" | "bajo"
+  urgencyHistory: {
+    id: string
+    previousUrgency: "alto" | "medio" | "bajo" | null
+    newUrgency: "alto" | "medio" | "bajo"
+    changedAt: string
+    changedBy: string
+    reason: string | null
+  }[]
+
   response: {
     urgency: "alto" | "medio" | "bajo" | null
     observation: string
     strengths: string | null
-    fields: Record<string, string | string[]> | null
+    fields: Record<
+      string,
+      string | string[]
+    > | null
   }
+
   evaluation: {
     date: string
     closedAt: string | null
   }
+
   institution: {
     id: string
     name: string
@@ -66,10 +82,12 @@ type IncidenceApiResponse = {
     localidad: string | null
     departamento: string | null
   }
+
   indicator: {
     id: string | null
     name: string | null
   }
+
   dimension: {
     name: string | null
   }
@@ -100,11 +118,16 @@ const CRITICALITY_COLORS: Record<Criticality, string> = {
   "sin-relevamiento": "#C1B8C8",
 }
 
-const CRITICALITY_LABELS: Record<Criticality, string> = {
-  alta: "Alta",
-  media: "Media",
-  baja: "Baja",
-  "sin-relevamiento": "Sin criticidad",
+const URGENCY_LABELS: Record<IncidenceApiResponse["currentUrgency"], string> = {
+  alto: "Alta",
+  medio: "Media",
+  bajo: "Baja",
+}
+
+const URGENCY_COLORS: Record<IncidenceApiResponse["currentUrgency"], string> = {
+  alto: "#BF1363",
+  medio: "#FFE066",
+  bajo: "#43AA8B",
 }
 
 function normalizeDepartmentName(
@@ -252,11 +275,54 @@ function getResponseContext(
   return context
 }
 
+function getManagementContext(
+  incidence: IncidenceApiResponse,
+) {
+  const history = incidence.urgencyHistory
+
+  if (history.length > 0) {
+    const latestChange = history[history.length - 1]
+
+    if (latestChange.reason?.trim()) {
+      return [latestChange.reason.trim()]
+    }
+  }
+
+  if (incidence.status === "resolved" && incidence.resolutionDescription?.trim()) {
+    return [incidence.resolutionDescription.trim()]
+  }
+
+  return getResponseContext(incidence.response)
+}
+
+function getLastModificationDate(
+  incidence: IncidenceApiResponse,
+) {
+  const dates = incidence.urgencyHistory
+    .map((change) => change.changedAt)
+
+  if (incidence.resolvedAt) {
+    dates.push(incidence.resolvedAt)
+  }
+
+  if (!dates.length) {
+    return incidence.createdAt
+  }
+
+  return dates.reduce((latest, current) =>
+    new Date(current).getTime() >
+    new Date(latest).getTime()
+      ? current
+      : latest,
+  )
+}
+
 export default function IncidenciasPage() {
   const {
     data: incidencesData,
     error: incidencesError,
     isLoading: incidencesLoading,
+    mutate: mutateIncidences,
   } = useSWR<IncidenceApiResponse[]>(
     "/api/incidences?status=all",
     fetcher,
@@ -294,6 +360,109 @@ export default function IncidenciasPage() {
 
   const [query, setQuery] = useState("")
 
+  const [selectedIncidenceId, setSelectedIncidenceId] =
+    useState<string | null>(null)
+  const [managementUrgency, setManagementUrgency] =
+    useState<"alto" | "medio" | "bajo">("medio")
+  const [managementReason, setManagementReason] =
+    useState("")
+  const [resolutionDescription, setResolutionDescription] =
+    useState("")
+  const [managementError, setManagementError] =
+    useState<string | null>(null)
+  const [managementSaving, setManagementSaving] =
+    useState(false)
+
+  const selectedIncidence = useMemo(
+    () =>
+      incidencesData?.find(
+        (incidence) => incidence.id === selectedIncidenceId,
+      ) ?? null,
+    [incidencesData, selectedIncidenceId],
+  )
+
+  const openManagement = (incidence: IncidenceApiResponse) => {
+    setSelectedIncidenceId(incidence.id)
+    setManagementUrgency(incidence.currentUrgency)
+    setManagementReason("")
+    setResolutionDescription("")
+    setManagementError(null)
+  }
+
+  const closeManagement = () => {
+    if (managementSaving) return
+    setSelectedIncidenceId(null)
+    setManagementError(null)
+  }
+
+  const saveManagement = async (resolve = false) => {
+    if (!selectedIncidence) return
+
+    const urgencyChanged =
+      managementUrgency !== selectedIncidence.currentUrgency
+    const reason = managementReason.trim()
+    const resolution = resolutionDescription.trim()
+
+    if (urgencyChanged && !reason) {
+      setManagementError(
+        "Ingresá el motivo del cambio de situación.",
+      )
+      return
+    }
+
+    if (resolve && !resolution) {
+      setManagementError(
+        "Ingresá una descripción de la resolución.",
+      )
+      return
+    }
+
+    setManagementSaving(true)
+    setManagementError(null)
+
+    try {
+      const response = await fetch(
+        `/api/incidences/${selectedIncidence.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            currentUrgency: managementUrgency,
+            ...(reason ? { reason } : {}),
+            ...(resolve
+              ? {
+                  status: "resolved",
+                  resolutionDescription: resolution,
+                }
+              : {}),
+          }),
+        },
+      )
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ??
+            "No se pudo actualizar la incidencia.",
+        )
+      }
+
+      await mutateIncidences()
+      setSelectedIncidenceId(null)
+    } catch (error) {
+      setManagementError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo actualizar la incidencia.",
+      )
+    } finally {
+      setManagementSaving(false)
+    }
+  }
+
   const institutions = useMemo(
     () => institutionsData ?? [],
     [institutionsData],
@@ -312,7 +481,7 @@ export default function IncidenciasPage() {
           candidate.title === item.indicator.name,
       )
 
-      const urgency = item.response.urgency
+      const urgency = item.currentUrgency
 
       const criticality: Criticality =
         urgency
@@ -785,22 +954,37 @@ export default function IncidenciasPage() {
         .incidence-institution {
           display: flex;
           flex-direction: column;
-          justify-content: space-between;
+          justify-content: flex-start;
           gap: 1rem;
-        }
-
-        .incidence-dimension {
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          gap: 0.7rem;
         }
 
         .incidence-result {
           display: flex;
           flex-direction: column;
           justify-content: space-between;
-          gap: 0.75rem;
+          gap: 0.9rem;
+        }
+
+        .incidence-territory {
+          margin: 0.45rem 0 0;
+          font-size: 0.82rem;
+          line-height: 1.45;
+          color: #52606a;
+        }
+
+        .incidence-location-line {
+          display: block;
+        }
+
+        .incidence-dimension-title {
+          margin: 0.75rem 0 0;
+          font-size: 0.82rem;
+          line-height: 1.45;
+          color: #52606a;
+        }
+
+        .incidence-indicator-block {
+          margin-top: 0.85rem;
         }
 
         .incidence-institution-name {
@@ -831,22 +1015,10 @@ export default function IncidenciasPage() {
           color: #667077;
         }
 
-        .incidence-dimension-label {
-          font-size: 0.82rem;
-          line-height: 1.4;
-          color: #52606a;
-        }
-
         .incidence-indicator {
           font-size: 1rem;
           line-height: 1.35;
           font-weight: 700;
-        }
-
-        .incidence-description {
-          font-size: 0.92rem;
-          line-height: 1.5;
-          color: #52606a;
         }
 
         .incidence-criticality {
@@ -858,6 +1030,81 @@ export default function IncidenciasPage() {
           border-radius: 999px;
           font-size: 0.8rem;
           font-weight: 600;
+        }
+
+        .incidence-urgency-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 0.65rem;
+          margin-top: 0.75rem;
+        }
+
+        .incidence-urgency-box {
+          display: grid;
+          gap: 0.25rem;
+          min-width: 0;
+          padding: 0.65rem 0.75rem;
+          border: 1px solid #e3e0e6;
+          background: #f8f7f5;
+        }
+
+        .incidence-urgency-box.current {
+          border-color: #c1b8c8;
+          background: #ffffff;
+        }
+
+        .incidence-urgency-label {
+          font-size: 0.68rem;
+          line-height: 1.2;
+          font-weight: 700;
+          letter-spacing: 0.07em;
+          text-transform: uppercase;
+          color: #667077;
+        }
+
+        .incidence-urgency-value {
+          font-size: 0.82rem;
+          line-height: 1.3;
+          font-weight: 700;
+          color: #230c0f;
+        }
+
+        .incidence-management {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 0.65rem;
+          flex-wrap: wrap;
+        }
+
+        .incidence-management-button {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 34px;
+          padding: 0.45rem 0.8rem;
+          border: 1px solid #230c0f;
+          background: #230c0f;
+          color: #ffffff;
+          font-size: 0.8rem;
+          font-weight: 600;
+          text-decoration: none;
+          cursor: pointer;
+        }
+
+        .incidence-management-button:hover {
+          background: #3a171b;
+        }
+
+        .incidence-management-button:disabled {
+          opacity: 0.7;
+          cursor: default;
+        }
+
+        .incidence-management-button:focus-visible,
+        .incidence-link:focus-visible {
+          outline: 2px solid #230c0f;
+          outline-offset: 2px;
         }
 
         .incidence-resolution {
@@ -889,6 +1136,13 @@ export default function IncidenciasPage() {
           color: #667077;
         }
 
+        .incidence-last-modification {
+          margin: 0.65rem 0 0;
+          font-size: 0.76rem;
+          line-height: 1.4;
+          color: #667077;
+        }
+
         .incidence-link {
           flex-shrink: 0;
           color: #230c0f;
@@ -899,6 +1153,235 @@ export default function IncidenciasPage() {
 
         .incidence-link:hover {
           text-decoration: underline;
+        }
+
+        .management-panel-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 9999;
+          display: flex;
+          justify-content: flex-end;
+          background: rgba(35, 12, 15, 0.35);
+        }
+
+        .management-panel {
+          width: min(560px, 100%);
+          height: 100%;
+          overflow-y: auto;
+          padding: 1.5rem;
+          background: #f7f6f2;
+          box-shadow: -12px 0 30px rgba(35, 12, 15, 0.12);
+          scrollbar-gutter: stable;
+        }
+
+        .management-panel-header {
+          position: sticky;
+          top: -1.5rem;
+          z-index: 2;
+          margin: -1.5rem -1.5rem 0;
+          padding: 1.5rem;
+          background: #f7f6f2;
+        }
+
+        .management-panel-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 1rem;
+          border-bottom: 1px solid #d4d1d7;
+        }
+
+        .management-panel-close {
+          border: 0;
+          background: transparent;
+          color: #230c0f;
+          font-size: 1.5rem;
+          line-height: 1;
+          cursor: pointer;
+        }
+
+        .management-section {
+          display: grid;
+          gap: 0.65rem;
+          padding: 1.25rem 0;
+          border-bottom: 1px solid #d4d1d7;
+        }
+
+        .management-label {
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #667077;
+        }
+
+        .management-value {
+          margin: 0;
+          color: #230c0f;
+          font-size: 0.95rem;
+        }
+
+        .management-status {
+          display: inline-flex;
+          width: fit-content;
+          padding: 0.3rem 0.65rem;
+          border-radius: 999px;
+          background: #e3e0e6;
+          color: #52606a;
+          font-size: 0.78rem;
+          font-weight: 600;
+        }
+
+        .management-urgency-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 0.65rem;
+        }
+
+        .management-urgency-option {
+          display: grid;
+          gap: 0.35rem;
+          padding: 0.75rem;
+          border: 1px solid #d4d1d7;
+          background: #ffffff;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .management-urgency-option.selected {
+          border-color: #230c0f;
+          box-shadow: inset 0 0 0 1px #230c0f;
+        }
+
+        .management-urgency-option:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+
+        .management-urgency-dot {
+          display: inline-block;
+          width: 9px;
+          height: 9px;
+          margin-right: 0.35rem;
+          border-radius: 50%;
+          vertical-align: middle;
+        }
+
+        .management-history {
+          display: grid;
+          gap: 0.7rem;
+        }
+
+        .management-history-item {
+          padding: 0.8rem;
+          border-left: 3px solid #c1b8c8;
+          background: #ffffff;
+        }
+
+        .management-history-meta {
+          margin: 0.25rem 0 0;
+          color: #667077;
+          font-size: 0.78rem;
+        }
+
+        .management-history-reason {
+          margin: 0.45rem 0 0;
+          color: #52606a;
+          font-size: 0.84rem;
+          line-height: 1.45;
+          white-space: pre-wrap;
+        }
+
+        .management-panel textarea {
+          width: 100%;
+          min-height: 100px;
+          resize: vertical;
+        }
+
+        .management-error {
+          margin: 0.75rem 0 0;
+          padding: 0.7rem 0.8rem;
+          border: 1px solid #bf1363;
+          background: #fff1f6;
+          color: #8f0d49;
+          font-size: 0.84rem;
+        }
+
+        .management-actions {
+          position: sticky;
+          bottom: -1.5rem;
+          z-index: 2;
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.65rem;
+          flex-wrap: wrap;
+          margin: 0 -1.5rem -1.5rem;
+          padding: 1rem 1.5rem 1.5rem;
+          background: linear-gradient(
+            to bottom,
+            rgba(247, 246, 242, 0),
+            #f7f6f2 22%
+          );
+        }
+
+        .management-actions button {
+          min-height: 38px;
+          padding: 0.55rem 0.9rem;
+          border: 1px solid #230c0f;
+          font-size: 0.82rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+
+        .management-secondary {
+          background: transparent;
+          color: #230c0f;
+        }
+
+        .management-primary {
+          background: #230c0f;
+          color: #ffffff;
+        }
+
+        .management-danger {
+          background: #bf1363;
+          border-color: #bf1363 !important;
+          color: #ffffff;
+        }
+
+        .management-actions button:disabled {
+          opacity: 0.55;
+          cursor: default;
+        }
+
+        @media (max-width: 640px) {
+          .management-panel {
+            padding: 1rem;
+          }
+
+          .management-panel-header {
+            top: -1rem;
+            margin: -1rem -1rem 0;
+            padding: 1rem;
+          }
+
+          .management-actions {
+            bottom: -1rem;
+            margin: 0 -1rem -1rem;
+            padding: 1rem 1rem 1rem;
+          }
+
+          .management-urgency-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .management-actions {
+            flex-direction: column-reverse;
+          }
+
+          .management-actions button {
+            width: 100%;
+          }
         }
 
         @media (max-width: 900px) {
@@ -918,9 +1401,6 @@ export default function IncidenciasPage() {
             border-left: none;
           }
 
-          .incidence-dimension {
-            border-left: 1px solid #e3e0e6;
-          }
         }
 
         @media (max-width: 640px) {
@@ -933,10 +1413,6 @@ export default function IncidenciasPage() {
             padding: 1rem;
           }
 
-          .incidence-dimension {
-            border-left: none;
-            border-top: 1px solid #e3e0e6;
-          }
 
           .incidence-result {
             border-top: 1px solid #e3e0e6;
@@ -1313,17 +1789,14 @@ export default function IncidenciasPage() {
             {filteredIncidences.map(
               (incidence) => {
                 const {
-                  evaluation,
                   response,
                   institution,
                   criticality,
                   dimensionNumber,
                   dimensionTitle,
                   indicatorTitle,
-                  indicatorDescription,
                   status,
-                  resolutionDescription,
-                  resolvedAt,
+                  currentUrgency,
                 } = incidence
 
                 const context =
@@ -1346,6 +1819,20 @@ export default function IncidenciasPage() {
                   CRITICALITY_COLORS[
                     criticality
                   ]
+
+                const urgencyLabels = {
+                  alto: "Alta",
+                  medio: "Media",
+                  bajo: "Baja",
+                } as const
+
+                const originalUrgencyLabel =
+                  response.urgency
+                    ? urgencyLabels[response.urgency]
+                    : "No registrada"
+
+                const currentUrgencyLabel =
+                  urgencyLabels[currentUrgency]
 
                 return (
                   <article
@@ -1373,216 +1860,129 @@ export default function IncidenciasPage() {
                             "Institución no encontrada"}
                         </strong>
 
-                        {territory && (
-                          <p
-                            className="muted"
-                            style={{
-                              margin:
-                                "0.5rem 0 0",
-                              lineHeight:
-                                1.45,
-                            }}
-                          >
-                            {territory}
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <span className="incidence-context-label">
-                          Relevamiento
-                        </span>
-
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize:
-                              "0.9rem",
-                            fontWeight: 600,
-                            lineHeight:
-                              1.4,
-                          }}
-                        >
-                          Gestión de
-                          Evaluación
-                        </p>
-
-                        <p
-                          className="muted"
-                          style={{
-                            margin:
-                              "0.2rem 0 0",
-                            fontSize:
-                              "0.78rem",
-                          }}
-                        >
-                          Cerrado el{" "}
-                          {formatDate(
-                            evaluation.closedAt ??
-                              evaluation.date,
-                          )}
+                        <p className="incidence-territory">
+                          {institution?.departamento ??
+                            "Departamento no disponible"}
+                          {institution?.localidad
+                            ? ` · ${institution.localidad}`
+                            : ""}
                         </p>
                       </div>
-                    </div>
 
-                    {/* =====================================================
-                        2. DIMENSIÓN / INDICADOR
-                    ====================================================== */}
-                    <div className="incidence-column incidence-dimension">
                       <div>
                         <span className="incidence-context-label">
                           Dimensión
                         </span>
 
-                        <div className="incidence-dimension-label">
-                          Dimensión{" "}
-                          {dimensionNumber}{" "}
-                          ·{" "}
-                          {dimensionTitle}
-                        </div>
-                      </div>
+                        <p className="incidence-dimension-title">
+                          Dimensión {dimensionNumber} · {dimensionTitle}
+                        </p>
 
-                      <div>
-                        <span className="incidence-context-label">
-                          Indicador
-                        </span>
+                        <div className="incidence-indicator-block">
+                          <span className="incidence-context-label">
+                            Indicador
+                          </span>
 
-                        <strong className="incidence-indicator">
-                          {indicatorTitle}
-                        </strong>
-                      </div>
-
-                      <div>
-                        <span className="incidence-context-label">
-                          Descripción
-                        </span>
-
-                        <div className="incidence-description">
-                          {
-                            indicatorDescription
-                          }
+                          <strong className="incidence-indicator">
+                            {indicatorTitle}
+                          </strong>
                         </div>
                       </div>
                     </div>
 
                     {/* =====================================================
-                        3. RESULTADO / CONTEXTO
+                        2. CONTEXTO
                     ====================================================== */}
-                    <div className="incidence-column incidence-result">
-                      <div>
-                        <span className="incidence-context-label">
-                          {isResolved
-                            ? "Estado"
-                            : "Criticidad"}
-                        </span>
+                    <div className="incidence-column incidence-context-column">
+                      <span className="incidence-context-label">
+                        Contexto
+                      </span>
 
-                        <span
-                          className={`incidence-criticality ${
-                            isResolved
-                              ? "is-resolved"
-                              : ""
-                          }`}
-                          style={{
-                            backgroundColor: isResolved
-                              ? "#e3e0e6"
-                              : criticalityColor,
-                            color: isResolved
-                              ? "#52606a"
-                              : criticality === "media"
-                                ? "#230C0F"
-                                : "#ffffff",
-                          }}
-                        >
-                          {isResolved
-                            ? "Resuelto"
-                            : CRITICALITY_LABELS[criticality]}
-                        </span>
-                      </div>
+                      {(() => {
+                        const managementContext =
+                          getManagementContext(incidence)
 
-                      <div>
-                        <span className="incidence-context-label">
-                          Contexto
-                        </span>
-
-                        {context.length >
-                        0 ? (
+                        return managementContext.length > 0 ? (
                           <div>
-                            {context.map(
-                              (
-                                item,
-                                index,
-                              ) => (
-                                <p
-                                  className="incidence-context"
-                                  key={`${incidence.evaluationResponseId}-context-${index}`}
-                                  style={{
-                                    margin:
-                                      index ===
-                                      0
-                                        ? 0
-                                        : "0.45rem 0 0",
-                                  }}
-                                >
-                                  {item}
-                                </p>
-                              ),
-                            )}
+                            {managementContext.map((item, index) => (
+                              <p
+                                className="incidence-context"
+                                key={`${incidence.evaluationResponseId}-management-context-${index}`}
+                                style={{
+                                  margin: index === 0 ? 0 : "0.45rem 0 0",
+                                }}
+                              >
+                                {item}
+                              </p>
+                            ))}
                           </div>
                         ) : (
                           <p
                             className="muted"
-                            style={{
-                              margin: 0,
-                            }}
+                            style={{ margin: 0 }}
                           >
-                            Sin
-                            información
-                            adicional.
+                            Sin información registrada.
                           </p>
-                        )}
-                      </div>
+                        )
+                      })()}
+                    </div>
 
-                      {isResolved && (
-                        <div className="incidence-resolution">
-                          <div>
-                            <span className="incidence-context-label">
-                              Fecha de resolución
-                            </span>
-                            <p className="incidence-resolution-date">
-                              {formatDate(resolvedAt)}
-                            </p>
-                          </div>
-
-                          <div>
-                            <span className="incidence-context-label">
-                              Descripción de resolución
-                            </span>
-                            <p className="incidence-resolution-description">
-                              {resolutionDescription?.trim() ||
-                                "Sin descripción de resolución."}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="incidence-footer">
-                        <span className="incidence-date">
-                          Relevamiento
-                          cerrado:{" "}
-                          {formatDate(
-                            evaluation.closedAt ??
-                              evaluation.date,
-                          )}
+                    {/* =====================================================
+                        3. ESTADO Y GESTIÓN
+                    ====================================================== */}
+                    <div className="incidence-column incidence-result">
+                      <div>
+                        <span className="incidence-context-label">
+                          Estado original
                         </span>
 
-                        <Link
-                          className="incidence-link"
-                          href={`/relevamientos/nuevo?evaluation=${incidence.evaluationId}`}
-                        >
-                          Consultar
-                          relevamiento
-                          {" →"}
-                        </Link>
+                        <div className="incidence-urgency-grid">
+                          <div className="incidence-urgency-box">
+                            <span className="incidence-urgency-label">
+                              Original
+                            </span>
+                            <span className="incidence-urgency-value">
+                              {originalUrgencyLabel}
+                            </span>
+                          </div>
+
+                          <div className="incidence-urgency-box current">
+                            <span className="incidence-urgency-label">
+                              Situación actual
+                            </span>
+                            <span className="incidence-urgency-value">
+                              {currentUrgencyLabel}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="incidence-last-modification">
+                          Última modificación: {formatDate(
+                            getLastModificationDate(incidence),
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="incidence-management">
+                        {!isResolved ? (
+                          <button
+                            type="button"
+                            className="incidence-management-button"
+                            onClick={() => openManagement(incidence)}
+                          >
+                            Gestionar incidencia →
+                          </button>
+                        ) : (
+                          <span
+                            className="incidence-criticality is-resolved"
+                            style={{
+                              backgroundColor: "#e3e0e6",
+                              color: "#52606a",
+                            }}
+                          >
+                            Resuelta
+                          </span>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -1592,6 +1992,169 @@ export default function IncidenciasPage() {
           </div>
         )}
       </section>
+
+      {selectedIncidence && (
+        <div
+          className="management-panel-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeManagement()
+            }
+          }}
+        >
+          <aside
+            className="management-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="management-panel-title"
+          >
+            <div className="management-panel-header">
+              <div>
+                <p className="eyebrow">GESTIÓN DE INCIDENCIA</p>
+                <h2 id="management-panel-title">
+                  {selectedIncidence.institution.name}
+                </h2>
+                <p className="muted">
+                  {selectedIncidence.indicator.name ?? "Indicador no disponible"}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="management-panel-close"
+                onClick={closeManagement}
+                disabled={managementSaving}
+                aria-label="Cerrar gestión"
+              >
+                ×
+              </button>
+            </div>
+
+            <section className="management-section">
+              <span className="management-label">Estado</span>
+              <span className="management-status">
+                {selectedIncidence.status === "resolved" ? "Resuelta" : "Abierta"}
+              </span>
+            </section>
+
+            <section className="management-section">
+              <span className="management-label">Urgencia original</span>
+              <p className="management-value">
+                {selectedIncidence.response.urgency
+                  ? URGENCY_LABELS[selectedIncidence.response.urgency]
+                  : "No registrada"}
+              </p>
+              <span className="muted">
+                Corresponde a la valoración registrada en el relevamiento original.
+              </span>
+            </section>
+
+            <section className="management-section">
+              <span className="management-label">Situación actual</span>
+              <div className="management-urgency-grid">
+                {(Object.keys(URGENCY_LABELS) as Array<"alto" | "medio" | "bajo">).map((urgency) => (
+                  <button
+                    key={urgency}
+                    type="button"
+                    className={`management-urgency-option ${managementUrgency === urgency ? "selected" : ""}`}
+                    onClick={() => setManagementUrgency(urgency)}
+                    disabled={managementSaving}
+                  >
+                    <span>
+                      <span
+                        className="management-urgency-dot"
+                        style={{ backgroundColor: URGENCY_COLORS[urgency] }}
+                      />
+                      {URGENCY_LABELS[urgency]}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <label htmlFor="management-reason">Motivo del cambio</label>
+              <textarea
+                id="management-reason"
+                value={managementReason}
+                onChange={(event) => setManagementReason(event.target.value)}
+                placeholder="Describí qué cambió en la situación..."
+                disabled={managementSaving}
+              />
+            </section>
+
+            <section className="management-section">
+              <span className="management-label">Historial de cambios</span>
+              {selectedIncidence.urgencyHistory.length === 0 ? (
+                <p className="muted">No hay cambios registrados todavía.</p>
+              ) : (
+                <div className="management-history">
+                  {selectedIncidence.urgencyHistory.slice().reverse().map((change) => (
+                    <div className="management-history-item" key={change.id}>
+                      <strong>
+                        {change.previousUrgency
+                          ? `${URGENCY_LABELS[change.previousUrgency]} → ${URGENCY_LABELS[change.newUrgency]}`
+                          : `Situación inicial: ${URGENCY_LABELS[change.newUrgency]}`}
+                      </strong>
+                      <p className="management-history-meta">
+                        {formatDate(change.changedAt)} · {change.changedBy}
+                      </p>
+                      {change.reason && (
+                        <p className="management-history-reason">{change.reason}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="management-section">
+              <span className="management-label">Resolución</span>
+              <label htmlFor="management-resolution">Descripción de la resolución</label>
+              <textarea
+                id="management-resolution"
+                value={resolutionDescription}
+                onChange={(event) => setResolutionDescription(event.target.value)}
+                placeholder="Describí las acciones realizadas y la situación alcanzada..."
+                disabled={managementSaving}
+              />
+            </section>
+
+            {managementError && (
+              <p className="management-error" role="alert">{managementError}</p>
+            )}
+
+            <div className="management-actions">
+              <button
+                type="button"
+                className="management-secondary"
+                onClick={closeManagement}
+                disabled={managementSaving}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="management-primary"
+                onClick={() => void saveManagement(false)}
+                disabled={
+                  managementSaving ||
+                  managementUrgency === selectedIncidence.currentUrgency
+                }
+              >
+                {managementSaving ? "Guardando..." : "Guardar cambios"}
+              </button>
+              <button
+                type="button"
+                className="management-danger"
+                onClick={() => void saveManagement(true)}
+                disabled={managementSaving}
+              >
+                {managementSaving ? "Procesando..." : "Resolver incidencia"}
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
     </main>
   )
 }
