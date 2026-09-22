@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db"
+import { getEvaluations } from "@/lib/data/evaluations"
 import { requirePermission } from "@/lib/require-permission"
 import type {
   Evaluation,
@@ -24,154 +25,158 @@ type EvaluationRow = {
 
 type CreateEvaluationResponseInput = {
   indicatorId: string
-  observation?: string
-  urgency?: EvaluationResponse["urgency"]
+  observation: string
+  urgency?: "alto" | "medio" | "bajo"
   strengths?: string
   fields?: Record<string, string | string[]>
 }
 
 type CreateEvaluationInput = {
   institutionId: string
-  institutionLevelId: string | null
+  institutionLevelId?: string | null
   date: string
-  managementTeamPresent: boolean | null
-  managementTeamContact: string
+  managementTeamPresent?: boolean | null
+  managementTeamContact?: string
   responses: CreateEvaluationResponseInput[]
 }
 
-const validUrgencies = new Set([
-  "alto",
-  "medio",
-  "bajo",
-])
+function isRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
 
 function isValidUrgency(
   value: unknown,
-): value is EvaluationResponse["urgency"] {
+): value is "alto" | "medio" | "bajo" {
   return (
-    typeof value === "string" &&
-    validUrgencies.has(value)
+    value === "alto" ||
+    value === "medio" ||
+    value === "bajo"
   )
 }
 
-function isValidDate(value: unknown): value is string {
-  if (typeof value !== "string") {
-    return false
-  }
-
-  return /^\d{4}-\d{2}-\d{2}$/.test(value)
-}
-
-function isValidResponse(
+function validateCreateEvaluationInput(
   value: unknown,
-): value is CreateEvaluationResponseInput {
-  if (
-    typeof value !== "object" ||
-    value === null
-  ) {
-    return false
-  }
-
-  const response =
-    value as Record<string, unknown>
-
-  if (
-    typeof response.indicatorId !== "string" ||
-    response.indicatorId.trim() === ""
-  ) {
-    return false
+): CreateEvaluationInput | null {
+  if (!isRecord(value)) {
+    return null
   }
 
   if (
-    response.observation !== undefined &&
-    typeof response.observation !== "string"
+    typeof value.institutionId !== "string" ||
+    value.institutionId.trim() === ""
   ) {
-    return false
+    return null
   }
 
   if (
-    response.strengths !== undefined &&
-    typeof response.strengths !== "string"
+    value.institutionLevelId !== undefined &&
+    value.institutionLevelId !== null &&
+    typeof value.institutionLevelId !== "string"
   ) {
-    return false
+    return null
   }
 
   if (
-    response.urgency !== undefined &&
-    response.urgency !== null &&
-    !isValidUrgency(response.urgency)
+    typeof value.date !== "string" ||
+    value.date.trim() === ""
   ) {
-    return false
+    return null
   }
 
   if (
-    response.fields !== undefined &&
-    (
-      typeof response.fields !== "object" ||
-      response.fields === null ||
-      Array.isArray(response.fields)
-    )
+    value.managementTeamPresent !== undefined &&
+    value.managementTeamPresent !== null &&
+    typeof value.managementTeamPresent !== "boolean"
   ) {
-    return false
-  }
-
-  return true
-}
-
-function isValidCreateEvaluationInput(
-  value: unknown,
-): value is CreateEvaluationInput {
-  if (
-    typeof value !== "object" ||
-    value === null
-  ) {
-    return false
-  }
-
-  const input =
-    value as Record<string, unknown>
-
-  if (
-    typeof input.institutionId !== "string" ||
-    input.institutionId.trim() === ""
-  ) {
-    return false
+    return null
   }
 
   if (
-    input.institutionLevelId !== null &&
-    input.institutionLevelId !== undefined &&
-    typeof input.institutionLevelId !== "string"
+    value.managementTeamContact !== undefined &&
+    typeof value.managementTeamContact !== "string"
   ) {
-    return false
+    return null
   }
 
-  if (!isValidDate(input.date)) {
-    return false
+  if (!Array.isArray(value.responses)) {
+    return null
   }
 
-  if (
-    input.managementTeamPresent !== null &&
-    input.managementTeamPresent !== undefined &&
-    typeof input.managementTeamPresent !== "boolean"
-  ) {
-    return false
+  const responses: CreateEvaluationResponseInput[] = []
+
+  for (const response of value.responses) {
+    if (!isRecord(response)) {
+      return null
+    }
+
+    if (
+      typeof response.indicatorId !== "string" ||
+      response.indicatorId.trim() === ""
+    ) {
+      return null
+    }
+
+    if (
+      typeof response.observation !== "string"
+    ) {
+      return null
+    }
+
+    if (
+      response.urgency !== undefined &&
+      !isValidUrgency(response.urgency)
+    ) {
+      return null
+    }
+
+    if (
+      response.strengths !== undefined &&
+      typeof response.strengths !== "string"
+    ) {
+      return null
+    }
+
+    if (
+      response.fields !== undefined &&
+      !isRecord(response.fields)
+    ) {
+      return null
+    }
+
+    responses.push({
+      indicatorId: response.indicatorId,
+      observation: response.observation,
+      ...(response.urgency !== undefined
+        ? { urgency: response.urgency }
+        : {}),
+      ...(response.strengths !== undefined
+        ? { strengths: response.strengths }
+        : {}),
+      ...(response.fields !== undefined
+        ? {
+            fields:
+              response.fields as Record<
+                string,
+                string | string[]
+              >,
+          }
+        : {}),
+    })
   }
 
-  if (
-    typeof input.managementTeamContact !== "string"
-  ) {
-    return false
+  return {
+    institutionId: value.institutionId,
+    institutionLevelId:
+      value.institutionLevelId ?? null,
+    date: value.date,
+    managementTeamPresent:
+      value.managementTeamPresent ?? null,
+    managementTeamContact:
+      value.managementTeamContact ?? "",
+    responses,
   }
-
-  if (
-    !Array.isArray(input.responses) ||
-    !input.responses.every(isValidResponse)
-  ) {
-    return false
-  }
-
-  return true
 }
 
 export async function GET() {
@@ -187,157 +192,17 @@ export async function GET() {
             ? "Unauthorized"
             : "Forbidden",
       },
-      { status: authorization.status },
+      {
+        status: authorization.status,
+      },
     )
   }
 
-  const roleId = authorization.session.user.roleId
-  const departamento =
-    authorization.session.user.departamento
-
-  /*
-   * Para responsables territoriales:
-   *
-   * - si no tienen departamento asignado,
-   *   no reciben evaluaciones;
-   * - si tienen departamento,
-   *   solamente reciben evaluaciones de
-   *   instituciones pertenecientes a ese departamento.
-   *
-   * Los demás roles mantienen acceso a todas
-   * las evaluaciones permitidas por su permiso.
-   */
-  const rows =
-    roleId === "responsable_territorial"
-      ? departamento
-        ? await sql`
-            SELECT
-              e.id,
-              e.version,
-              e.status,
-              e.institution_id,
-              e.institution_level_id,
-              e.date,
-              e.management_team_present,
-              e.management_team_contact,
-              e.created_by,
-              e.updated_by,
-              e.created_at,
-              e.updated_at,
-              e.closed_at,
-              COALESCE(
-                json_agg(
-                  json_build_object(
-                    'id', er.id,
-                    'evaluationId', er.evaluation_id,
-                    'indicatorId', er.indicator_id,
-                    'observation', er.observation,
-                    'urgency', er.urgency,
-                    'strengths', er.strengths,
-                    'fields', er.fields
-                  )
-                  ORDER BY er.indicator_id
-                ) FILTER (WHERE er.id IS NOT NULL),
-                '[]'::json
-              ) AS responses
-            FROM evaluations e
-            INNER JOIN institutions i
-              ON i.id = e.institution_id
-            LEFT JOIN evaluation_responses er
-              ON er.evaluation_id = e.id
-            WHERE i.departamento = ${departamento}
-            GROUP BY
-              e.id,
-              e.version,
-              e.status,
-              e.institution_id,
-              e.institution_level_id,
-              e.date,
-              e.management_team_present,
-              e.management_team_contact,
-              e.created_by,
-              e.updated_by,
-              e.created_at,
-              e.updated_at,
-              e.closed_at
-            ORDER BY e.updated_at DESC
-          `
-        : []
-      : await sql`
-          SELECT
-            e.id,
-            e.version,
-            e.status,
-            e.institution_id,
-            e.institution_level_id,
-            e.date,
-            e.management_team_present,
-            e.management_team_contact,
-            e.created_by,
-            e.updated_by,
-            e.created_at,
-            e.updated_at,
-            e.closed_at,
-            COALESCE(
-              json_agg(
-                json_build_object(
-                  'id', er.id,
-                  'evaluationId', er.evaluation_id,
-                  'indicatorId', er.indicator_id,
-                  'observation', er.observation,
-                  'urgency', er.urgency,
-                  'strengths', er.strengths,
-                  'fields', er.fields
-                )
-                ORDER BY er.indicator_id
-              ) FILTER (WHERE er.id IS NOT NULL),
-              '[]'::json
-            ) AS responses
-          FROM evaluations e
-          LEFT JOIN evaluation_responses er
-            ON er.evaluation_id = e.id
-          GROUP BY
-            e.id,
-            e.version,
-            e.status,
-            e.institution_id,
-            e.institution_level_id,
-            e.date,
-            e.management_team_present,
-            e.management_team_contact,
-            e.created_by,
-            e.updated_by,
-            e.created_at,
-            e.updated_at,
-            e.closed_at
-          ORDER BY e.updated_at DESC
-        `
-
-  const typedRows = rows as EvaluationRow[]
-
-  const evaluations = typedRows.map(
-    (row) =>
-      ({
-        id: row.id,
-        version: row.version,
-        status: row.status,
-        institutionId: row.institution_id,
-        institutionLevelId: row.institution_level_id,
-        date: row.date,
-        managementTeamPresent:
-          row.management_team_present,
-        managementTeamContact:
-          row.management_team_contact,
-        createdBy: row.created_by,
-        createdAt: row.created_at,
-        updatedBy: row.updated_by,
-        updatedAt: row.updated_at,
-        ...(row.closed_at
-          ? { closedAt: row.closed_at }
-          : {}),
-        responses: row.responses,
-      }) satisfies Evaluation,
-  )
+  const evaluations = await getEvaluations({
+    roleId: authorization.session.user.roleId,
+    departamento:
+      authorization.session.user.departamento,
+  })
 
   return Response.json(evaluations)
 }
@@ -355,7 +220,9 @@ export async function POST(request: Request) {
             ? "Unauthorized"
             : "Forbidden",
       },
-      { status: authorization.status },
+      {
+        status: authorization.status,
+      },
     )
   }
 
@@ -368,89 +235,63 @@ export async function POST(request: Request) {
       {
         error: "Invalid JSON body",
       },
-      { status: 400 },
+      {
+        status: 400,
+      },
     )
   }
 
-  if (!isValidCreateEvaluationInput(body)) {
+  const input = validateCreateEvaluationInput(body)
+
+  if (!input) {
     return Response.json(
       {
-        error: "Invalid evaluation payload",
+        error: "Invalid evaluation data",
       },
-      { status: 400 },
+      {
+        status: 400,
+      },
     )
   }
 
-  const roleId = authorization.session.user.roleId
-  const departamento =
-    authorization.session.user.departamento
+  const user = authorization.session.user
 
-  /*
-   * Seguridad territorial del POST:
-   *
-   * Un responsable territorial solamente puede
-   * crear relevamientos para instituciones de
-   * su departamento.
-   */
-  if (roleId === "responsable_territorial") {
-    if (!departamento) {
+  if (user.roleId === "responsable_territorial") {
+    if (!user.departamento) {
       return Response.json(
         {
           error:
-            "El responsable territorial no tiene un departamento asignado.",
+            "El responsable territorial no tiene un departamento asignado",
         },
-        { status: 403 },
+        {
+          status: 403,
+        },
       )
     }
 
-    const institutionRows = (await sql`
+    const institutionRows = await sql`
       SELECT id
       FROM institutions
-      WHERE id = ${body.institutionId}
-        AND departamento = ${departamento}
+      WHERE id = ${input.institutionId}
+        AND departamento = ${user.departamento}
       LIMIT 1
-    `) as { id: string }[]
+    `
 
     if (institutionRows.length === 0) {
       return Response.json(
         {
           error:
-            "No tiene permisos para crear un relevamiento en esta institución.",
+            "La institución no pertenece al departamento asignado",
         },
-        { status: 403 },
+        {
+          status: 403,
+        },
       )
     }
   }
 
   const evaluationId = crypto.randomUUID()
-  const userId = authorization.session.user.id
-
-  const responseQueries = body.responses.map(
-    (response) => {
-      const responseId = crypto.randomUUID()
-
-      return sql`
-        INSERT INTO evaluation_responses (
-          id,
-          evaluation_id,
-          indicator_id,
-          observation,
-          urgency,
-          strengths,
-          fields
-        )
-        VALUES (
-          ${responseId},
-          ${evaluationId},
-          ${response.indicatorId},
-          ${response.observation ?? ""},
-          ${response.urgency ?? null},
-          ${response.strengths ?? null},
-          ${response.fields ?? null}
-        )
-      `
-    },
-  )
+  const createdAt = new Date().toISOString()
 
   try {
     await sql.transaction([
@@ -465,81 +306,99 @@ export async function POST(request: Request) {
           management_team_present,
           management_team_contact,
           created_by,
-          updated_by
+          created_at,
+          updated_by,
+          updated_at
         )
         VALUES (
           ${evaluationId},
           1,
           'draft',
-          ${body.institutionId},
-          ${body.institutionLevelId},
-          ${body.date},
-          ${body.managementTeamPresent},
-          ${body.managementTeamContact},
-          ${userId},
-          ${userId}
+          ${input.institutionId},
+          ${input.institutionLevelId},
+          ${input.date},
+          ${input.managementTeamPresent},
+          ${input.managementTeamContact},
+          ${user.id},
+          ${createdAt},
+          ${user.id},
+          ${createdAt}
         )
       `,
-      ...responseQueries,
+      ...input.responses.map((response) => {
+        const responseId = crypto.randomUUID()
+
+        return sql`
+          INSERT INTO evaluation_responses (
+            id,
+            evaluation_id,
+            indicator_id,
+            observation,
+            urgency,
+            strengths,
+            fields
+          )
+          VALUES (
+            ${responseId},
+            ${evaluationId},
+            ${response.indicatorId},
+            ${response.observation},
+            ${response.urgency ?? null},
+            ${response.strengths ?? null},
+            ${response.fields
+              ? JSON.stringify(response.fields)
+              : null}
+          )
+        `
+      }),
     ])
   } catch (error) {
-    console.error(
-      "Failed to create evaluation",
-      error,
-    )
-
     if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
+      isRecord(error) &&
       error.code === "23503"
     ) {
       return Response.json(
         {
-          error: "Invalid evaluation reference.",
+          error:
+            "La institución o alguno de los datos relacionados no existe",
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       )
     }
 
     if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "23505" &&
-      "constraint" in error &&
-      error.constraint ===
-        "evaluations_one_open_per_institution_idx"
+      isRecord(error) &&
+      error.code === "23505"
     ) {
-      const openRows = (await sql`
-        SELECT id
-        FROM evaluations
-        WHERE institution_id = ${body.institutionId}
-          AND status = 'draft'
-        ORDER BY created_at DESC
-        LIMIT 1
-      `) as { id: string }[]
-
       return Response.json(
         {
           error:
-            "La institución ya tiene un relevamiento abierto.",
-          evaluationId:
-            openRows[0]?.id ?? null,
+            "La institución ya tiene una evaluación abierta",
         },
-        { status: 409 },
+        {
+          status: 409,
+        },
       )
     }
 
+    console.error(
+      "Error creating evaluation:",
+      error,
+    )
+
     return Response.json(
       {
-        error: "Unable to create evaluation",
+        error: "Internal server error",
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     )
   }
 
-  const rows = (await sql`
+  const rows = await sql`
     SELECT
       e.id,
       e.version,
@@ -588,21 +447,23 @@ export async function POST(request: Request) {
       e.updated_at,
       e.closed_at
     LIMIT 1
-  `) as EvaluationRow[]
+  `
 
-  const row = rows[0]
-
-  if (!row) {
+  if (rows.length === 0) {
     return Response.json(
       {
         error:
-          "Evaluation created but could not be loaded",
+          "Evaluation was created but could not be loaded",
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     )
   }
 
-  const evaluation = {
+  const row = rows[0] as EvaluationRow
+
+  const evaluation: Evaluation = {
     id: row.id,
     version: row.version,
     status: row.status,
@@ -621,10 +482,9 @@ export async function POST(request: Request) {
       ? { closedAt: row.closed_at }
       : {}),
     responses: row.responses,
-  } satisfies Evaluation
+  }
 
-  return Response.json(
-    evaluation,
-    { status: 201 },
-  )
+  return Response.json(evaluation, {
+    status: 201,
+  })
 }

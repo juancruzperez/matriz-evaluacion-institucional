@@ -1,7 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
+import useSWR from "swr"
+
+import { fetcher } from "@/lib/fetcher"
 import {
   calculateInstitutionAssessment,
   URGENCY_WEIGHT,
@@ -124,37 +127,35 @@ type InstitutionIncidence = CriticalityIncidence & {
   dimensionName: string
 }
 
-type IncidenceApiResponse = {
-  id: string
-  institutionId: string
-  evaluationId: string
-  evaluationResponseId: string
-  status: "open" | "resolved"
-  resolutionDescription: string | null
-  createdAt: string
-  resolvedAt: string | null
-  response?: {
-    urgency?: Urgency | null
-    observation?: string | null
-  } | null
-  indicator?: {
-    id: string | null
-    name: string | null
-  } | null
-  dimension?: {
-    name: string | null
-  } | null
-}
-
 export default function InstitutionsPage() {
-  const [institutions, setInstitutions] = useState<Institution[]>([])
-  const [evaluations, setEvaluations] = useState<Evaluation[]>([])
-  const [incidences, setIncidences] =
-    useState<InstitutionIncidence[]>([])
+  const {
+    data: institutions,
+    error: institutionsError,
+    isLoading: institutionsLoading,
+  } = useSWR<Institution[]>(
+    "/api/institutions",
+    fetcher,
+  )
+
+  const {
+    data: evaluationsData,
+    error: evaluationsError,
+    isLoading: evaluationsLoading,
+  } = useSWR<Evaluation[]>(
+    "/api/evaluations",
+    fetcher,
+  )
+
+  const {
+    data: incidencesData,
+    error: incidencesError,
+    isLoading: incidencesLoading,
+  } = useSWR<unknown>(
+    "/api/incidences?status=all",
+    fetcher,
+  )
+
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [institutionsLoading, setInstitutionsLoading] = useState(true)
-  const [institutionsError, setInstitutionsError] =
-    useState<string | null>(null)
 
   const [searchQuery, setSearchQuery] = useState("")
 
@@ -166,127 +167,89 @@ export default function InstitutionsPage() {
   const [criticalityFilter, setCriticalityFilter] =
     useState<Criticality | "todas">("todas")
 
-  useEffect(() => {
-    const controller = new AbortController()
+  const institutionsForView = useMemo(
+    () => institutions ?? [],
+    [institutions],
+  )
 
-    const loadData = async () => {
-      try {
-        setInstitutionsLoading(true)
-        setInstitutionsError(null)
+  const evaluations = useMemo(() => {
+    return (
+      evaluationsData?.map((evaluation) => ({
+        ...evaluation,
+        status: evaluation.status ?? "draft",
+      })) ?? []
+    )
+  }, [evaluationsData])
 
-        const [
-          institutionsResponse,
-          evaluationsResponse,
-          incidencesResponse,
-        ] = await Promise.all([
-          fetch("/api/institutions", {
-            signal: controller.signal,
-          }),
-          fetch("/api/evaluations", {
-            signal: controller.signal,
-          }),
-          fetch("/api/incidences?status=all", {
-            signal: controller.signal,
-          }),
-        ])
+  const incidences = useMemo<InstitutionIncidence[]>(() => {
+    const rows = Array.isArray(incidencesData)
+      ? incidencesData
+      : (
+          incidencesData as {
+            incidences?: unknown
+          } | undefined
+        )?.incidences ?? []
 
-        if (!institutionsResponse.ok) {
-          throw new Error(
-            "No se pudieron cargar las instituciones",
-          )
-        }
+    return (rows as Array<{
+      id: string
+      institutionId: string
+      evaluationId: string
+      evaluationResponseId: string
+      status: "open" | "resolved"
+      resolutionDescription: string | null
+      createdAt: string
+      resolvedAt: string | null
+      response?: {
+        urgency?: Urgency | null
+        observation?: string | null
+      } | null
+      indicator?: {
+        id: string | null
+        name: string | null
+      } | null
+      dimension?: {
+        name: string | null
+      } | null
+    }>).map((incidence) => ({
+      id: incidence.id,
+      institutionId: incidence.institutionId,
+      evaluationId: incidence.evaluationId,
+      evaluationResponseId: incidence.evaluationResponseId,
+      status: incidence.status,
+      createdAt: incidence.createdAt,
+      resolvedAt: incidence.resolvedAt,
+      urgency: incidence.response?.urgency ?? null,
+      resolutionDescription:
+        incidence.resolutionDescription ?? null,
+      observation:
+        incidence.response?.observation?.trim() ?? "",
+      indicatorName:
+        incidence.indicator?.name ??
+        "Indicador no disponible",
+      dimensionName:
+        incidence.dimension?.name ??
+        "Dimensión no disponible",
+    }))
+  }, [incidencesData])
 
-        if (!evaluationsResponse.ok) {
-          throw new Error(
-            "No se pudieron cargar los relevamientos",
-          )
-        }
+  const institutionsErrorMessage =
+    institutionsError instanceof Error
+      ? institutionsError.message
+      : institutionsError
+        ? "No se pudieron cargar los datos institucionales."
+        : null
 
-        if (!incidencesResponse.ok) {
-          throw new Error(
-            "No se pudieron cargar las incidencias",
-          )
-        }
-
-        const [
-          institutionsData,
-          evaluationsData,
-          incidencesData,
-        ] = await Promise.all([
-          institutionsResponse.json() as Promise<Institution[]>,
-          evaluationsResponse.json() as Promise<Evaluation[]>,
-          incidencesResponse.json(),
-        ])
-
-        if (controller.signal.aborted) {
-          return
-        }
-
-        setInstitutions(institutionsData)
-
-        setEvaluations(
-          evaluationsData.map((evaluation) => ({
-            ...evaluation,
-            status: evaluation.status ?? "draft",
-          })),
-        )
-
-        const incidenceRows = Array.isArray(incidencesData)
-          ? incidencesData
-          : incidencesData?.incidences ?? []
-
-        setIncidences(
-          (incidenceRows as IncidenceApiResponse[]).map(
-            (incidence) => ({
-              id: incidence.id,
-              institutionId: incidence.institutionId,
-              evaluationId: incidence.evaluationId,
-              evaluationResponseId:
-                incidence.evaluationResponseId,
-              status: incidence.status,
-              createdAt: incidence.createdAt,
-              resolvedAt: incidence.resolvedAt,
-              urgency:
-                incidence.response?.urgency ?? null,
-              resolutionDescription:
-                incidence.resolutionDescription ?? null,
-              observation:
-                incidence.response?.observation?.trim() ?? "",
-              indicatorName:
-                incidence.indicator?.name ??
-                "Indicador no disponible",
-              dimensionName:
-                incidence.dimension?.name ??
-                "Dimensión no disponible",
-            }),
-          ),
-        )
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return
-        }
-
-        console.error(error)
-
-        setInstitutionsError(
-          "No se pudieron cargar los datos institucionales.",
-        )
-      } finally {
-        if (!controller.signal.aborted) {
-          setInstitutionsLoading(false)
-        }
-      }
-    }
-
-    loadData()
-
-    return () => {
-      controller.abort()
-    }
-  }, [])
+  const dataErrorMessage =
+    evaluationsError instanceof Error
+      ? evaluationsError.message
+      : incidencesError instanceof Error
+        ? incidencesError.message
+        : evaluationsError || incidencesError
+          ? "No se pudieron cargar todos los datos institucionales."
+          : null
 
   const assessments = useMemo(() => {
-    return institutions
+    return institutionsForView
       .map((institution) => ({
         institution,
         assessment: calculateInstitutionAssessment(
@@ -319,7 +282,7 @@ export default function InstitutionsPage() {
           (a.assessment.score ?? -1)
         )
       })
-  }, [evaluations, institutions, incidences])
+  }, [evaluations, institutionsForView, incidences])
 
   const normalizeSearchText = (value: string) =>
     value
@@ -333,7 +296,7 @@ export default function InstitutionsPage() {
   const filterOptions = useMemo(() => {
     const sectors = Array.from(
       new Set(
-        institutions
+        institutionsForView
           .map((institution) => institution.sector)
           .filter(Boolean),
       ),
@@ -341,7 +304,7 @@ export default function InstitutionsPage() {
 
     const departamentos = Array.from(
       new Set(
-        institutions
+        institutionsForView
           .map((institution) => institution.departamento)
           .filter(
             (value): value is string => Boolean(value),
@@ -351,7 +314,7 @@ export default function InstitutionsPage() {
 
     const localidades = Array.from(
       new Set(
-        institutions
+        institutionsForView
           .filter(
             (institution) =>
               departamentoFilter === "todos" ||
@@ -367,7 +330,7 @@ export default function InstitutionsPage() {
 
     const ambitos = Array.from(
       new Set(
-        institutions
+        institutionsForView
           .map((institution) => institution.ambito)
           .filter(
             (value): value is string => Boolean(value),
@@ -381,7 +344,7 @@ export default function InstitutionsPage() {
       localidades,
       ambitos,
     }
-  }, [institutions, departamentoFilter])
+  }, [institutionsForView, departamentoFilter])
 
   const filteredAssessments = useMemo(() => {
     const query = normalizeSearchText(searchQuery.trim())
@@ -649,20 +612,23 @@ export default function InstitutionsPage() {
       </header>
 
       <section className="institution-summary-bar">
-        {institutionsLoading && (
+        {(institutionsLoading ||
+          evaluationsLoading ||
+          incidencesLoading) && (
           <p className="muted">
-            Cargando instituciones...
+            Cargando datos institucionales...
           </p>
         )}
 
-        {institutionsError && (
+        {(institutionsErrorMessage || dataErrorMessage) && (
           <p className="muted">
-            {institutionsError}
+            {institutionsErrorMessage ??
+              dataErrorMessage}
           </p>
         )}
 
         <div>
-          <strong>{institutions.length}</strong>
+          <strong>{institutionsForView.length}</strong>
           <span>Instituciones</span>
         </div>
 
@@ -784,7 +750,7 @@ export default function InstitutionsPage() {
                     .filter(
                       (localidad) =>
                         departamentoFilter === "todos" ||
-                        institutions.some(
+                        institutionsForView.some(
                           (institution) =>
                             institution.departamento ===
                               departamentoFilter &&

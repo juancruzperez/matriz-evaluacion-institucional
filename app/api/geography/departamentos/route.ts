@@ -3,7 +3,6 @@ import { NextResponse } from "next/server"
 const IDECOR_DEPARTMENTS_URL =
   "https://idecor-ws.mapascordoba.gob.ar/geoserver/idecor/wfs?service=WFS&version=1.0.0&request=GetFeature&typeName=idecor:departamentos&srsName=EPSG:4326&outputFormat=application/json"
 
-export const dynamic = "force-dynamic"
 
 export async function GET() {
   try {

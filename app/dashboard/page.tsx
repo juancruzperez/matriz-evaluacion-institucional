@@ -3,7 +3,9 @@
 import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
+import useSWR from "swr"
 
+import { fetcher } from "@/lib/fetcher"
 import type { Institution } from "@/types/institution"
 import type { Evaluation, Urgency } from "@/types/evaluation"
 import {
@@ -46,152 +48,107 @@ type IncidenceApiResponse = {
   } | null
 }
 
+type DashboardApiResponse = {
+  evaluations: Evaluation[]
+  institutions: Institution[]
+  incidences: IncidenceApiResponse[]
+}
+
 export default function Dashboard() {
-  const [evaluations, setEvaluations] =
-    useState<Evaluation[]>([])
-
-  const [institutions, setInstitutions] =
-    useState<Institution[]>([])
-
-  const [incidences, setIncidences] =
-    useState<CriticalityIncidence[]>([])
-
   const [sessionUser, setSessionUser] =
     useState<SessionUser | null>(null)
 
-  const [loadingEvaluations, setLoadingEvaluations] =
-    useState(true)
+  const {
+    data: dashboardData,
+    error: dashboardError,
+    isLoading: loadingEvaluations,
+  } = useSWR<DashboardApiResponse>(
+    "/api/dashboard",
+    fetcher,
+  )
 
   useEffect(() => {
-    let cancelled = false
-
-    async function loadDashboardData() {
+    async function loadSession() {
       try {
-        const [
-          evaluationsResponse,
-          institutionsResponse,
-          sessionResponse,
-          incidencesResponse,
-        ] = await Promise.all([
-          fetch("/api/evaluations", {
+        const response = await fetch(
+          "/api/auth/session",
+          {
             cache: "no-store",
-          }),
-          fetch("/api/institutions", {
-            cache: "no-store",
-          }),
-          fetch("/api/auth/session", {
-            cache: "no-store",
-          }),
-          fetch("/api/incidences?status=all", {
-            cache: "no-store",
-          }),
-        ])
+          },
+        )
 
-        const evaluationsData =
-          await evaluationsResponse.json()
+        const data = await response.json()
 
-        const institutionsData =
-          await institutionsResponse.json()
-
-        const sessionData =
-          await sessionResponse.json()
-
-        const incidencesData =
-          await incidencesResponse.json()
-
-        if (!evaluationsResponse.ok) {
-          throw new Error(
-            evaluationsData?.error ??
-              "No se pudieron cargar los relevamientos.",
-          )
-        }
-
-        if (!institutionsResponse.ok) {
-          throw new Error(
-            institutionsData?.error ??
-              "No se pudieron cargar las instituciones.",
-          )
-        }
-
-        if (!sessionResponse.ok) {
+        if (!response.ok) {
           throw new Error(
             "No se pudo cargar la sesión.",
           )
         }
 
-        if (!incidencesResponse.ok) {
-          throw new Error(
-            incidencesData?.error ??
-              "No se pudieron cargar las incidencias.",
-          )
-        }
-
-        if (cancelled) return
-
-        setSessionUser(
-          sessionData?.user ?? null,
-        )
-
-        setEvaluations(
-          (evaluationsData as Evaluation[]).map(
-            (evaluation) => ({
-              ...evaluation,
-              status:
-                evaluation.status ??
-                "draft",
-            }),
-          ),
-        )
-
-        setInstitutions(
-          institutionsData as Institution[],
-        )
-
-        const incidenceRows =
-          Array.isArray(incidencesData)
-            ? incidencesData
-            : incidencesData?.incidences ?? []
-
-        setIncidences(
-          (incidenceRows as IncidenceApiResponse[]).map(
-            (incidence) => ({
-              id: incidence.id,
-              institutionId:
-                incidence.institutionId,
-              evaluationId:
-                incidence.evaluationId,
-              evaluationResponseId:
-                incidence.evaluationResponseId,
-              status: incidence.status,
-              createdAt: incidence.createdAt,
-              resolvedAt:
-                incidence.resolvedAt,
-              urgency:
-                incidence.response?.urgency ??
-                null,
-            }),
-          ),
-        )
+        setSessionUser(data?.user ?? null)
       } catch (error) {
-        if (cancelled) return
-
         console.error(
-          "Error al cargar datos del dashboard",
+          "Error al cargar la sesión",
           error,
         )
-      } finally {
-        if (!cancelled) {
-          setLoadingEvaluations(false)
-        }
       }
     }
 
-    void loadDashboardData()
-
-    return () => {
-      cancelled = true
-    }
+    void loadSession()
   }, [])
+
+  useEffect(() => {
+    if (!dashboardError) return
+
+    console.error(
+      "Error al cargar datos del dashboard",
+      dashboardError,
+    )
+  }, [dashboardError])
+
+  const evaluations = useMemo(() => {
+    return (
+      dashboardData?.evaluations.map(
+        (evaluation) => ({
+          ...evaluation,
+          status:
+            evaluation.status ?? "draft",
+        }),
+      ) ?? []
+    )
+  }, [dashboardData])
+
+  const institutions = useMemo(() => {
+    return dashboardData?.institutions ?? []
+  }, [dashboardData])
+
+  const incidences = useMemo<
+    CriticalityIncidence[]
+  >(() => {
+    const incidenceRows =
+      Array.isArray(dashboardData?.incidences)
+        ? dashboardData.incidences
+        : []
+
+    return incidenceRows.map(
+      (incidence) => ({
+        id: incidence.id,
+        institutionId:
+          incidence.institutionId,
+        evaluationId:
+          incidence.evaluationId,
+        evaluationResponseId:
+          incidence.evaluationResponseId,
+        status: incidence.status,
+        createdAt: incidence.createdAt,
+        resolvedAt:
+          incidence.resolvedAt,
+        urgency:
+          incidence.response?.urgency ??
+          null,
+      }),
+    )
+  }, [dashboardData])
 
   const isTerritorialResponsible =
     sessionUser?.roleId ===
@@ -275,19 +232,19 @@ export default function Dashboard() {
    * centralizada en lib/criticality.ts.
    */
   const assessments = useMemo(() => {
-  return institutions.map(
-    (institution) =>
-      calculateInstitutionAssessment(
-        institution.id,
-        scopedEvaluations,
-        scopedIncidences,
-      ),
-  )
-}, [
-  institutions,
-  scopedEvaluations,
-  scopedIncidences,
-])
+    return institutions.map(
+      (institution) =>
+        calculateInstitutionAssessment(
+          institution.id,
+          scopedEvaluations,
+          scopedIncidences,
+        ),
+    )
+  }, [
+    institutions,
+    scopedEvaluations,
+    scopedIncidences,
+  ])
 
   /*
    * Total de instituciones que forman parte

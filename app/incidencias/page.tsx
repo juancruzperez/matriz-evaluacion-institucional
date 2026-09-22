@@ -2,6 +2,9 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
+import useSWR from "swr"
+
+import { fetcher } from "@/lib/fetcher"
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon"
 
 import {
@@ -250,11 +253,23 @@ function getResponseContext(
 }
 
 export default function IncidenciasPage() {
-  const [institutions, setInstitutions] =
-    useState<Institution[]>([])
+  const {
+    data: incidencesData,
+    error: incidencesError,
+    isLoading: incidencesLoading,
+  } = useSWR<IncidenceApiResponse[]>(
+    "/api/incidences?status=all",
+    fetcher,
+  )
 
-  const [incidences, setIncidences] =
-    useState<Incidence[]>([])
+  const {
+    data: institutionsData,
+    error: institutionsError,
+    isLoading: institutionsLoading,
+  } = useSWR<Institution[]>(
+    "/api/institutions",
+    fetcher,
+  )
 
   const [sections, setSections] =
     useState<SectionGeoJSON | null>(null)
@@ -279,146 +294,96 @@ export default function IncidenciasPage() {
 
   const [query, setQuery] = useState("")
 
-  const [loading, setLoading] =
-    useState(true)
+  const institutions = useMemo(
+    () => institutionsData ?? [],
+    [institutionsData],
+  )
 
-  const [error, setError] =
-    useState<string | null>(null)
+  const incidences = useMemo<Incidence[]>(() => {
+    return (incidencesData ?? []).map((item) => {
+      const dimension = dimensions.find(
+        (candidate) =>
+          candidate.title === item.dimension.name,
+      )
 
+      const indicator = dimension?.indicators.find(
+        (candidate) =>
+          candidate.id === item.indicator.id ||
+          candidate.title === item.indicator.name,
+      )
+
+      const urgency = item.response.urgency
+
+      const criticality: Criticality =
+        urgency
+          ? urgency === "alto"
+            ? "alta"
+            : urgency === "medio"
+              ? "media"
+              : "baja"
+          : "sin-relevamiento"
+
+      return {
+        ...item,
+        criticality,
+        dimensionNumber: dimension?.number ?? "",
+        dimensionTitle:
+          dimension?.title ??
+          item.dimension.name ??
+          "Dimensión no disponible",
+        indicatorTitle:
+          indicator?.title ??
+          item.indicator.name ??
+          "Indicador no disponible",
+        indicatorDescription:
+          indicator?.description ??
+          "Sin descripción disponible.",
+      }
+    })
+  }, [incidencesData])
+
+  const dataError =
+    incidencesError instanceof Error
+      ? incidencesError.message
+      : institutionsError instanceof Error
+        ? institutionsError.message
+        : incidencesError || institutionsError
+          ? "No se pudieron cargar todos los datos."
+          : null
+
+  // El GeoJSON de circuitos se mantiene como recurso independiente.
   useEffect(() => {
-    const controller =
-      new AbortController()
+    const controller = new AbortController()
 
-    const loadData = async () => {
+    const loadSections = async () => {
       try {
-        setLoading(true)
-        setError(null)
+        const response = await fetch(
+          "/data/geography/capital-secciones.geojson",
+          { signal: controller.signal },
+        )
 
-        const [
-          incidencesResponse,
-          institutionsResponse,
-          sectionsResponse,
-        ] = await Promise.all([
-          fetch("/api/incidences?status=all", {
-            cache: "no-store",
-            signal: controller.signal,
-          }),
-
-          fetch("/api/institutions", {
-            cache: "no-store",
-            signal: controller.signal,
-          }),
-
-          fetch(
-            "/data/geography/capital-secciones.geojson",
-            {
-              cache: "no-store",
-              signal: controller.signal,
-            },
-          ),
-        ])
-
-        if (!incidencesResponse.ok) {
-          throw new Error(
-            "No se pudieron cargar las incidencias.",
-          )
-        }
-
-        if (!institutionsResponse.ok) {
-          throw new Error(
-            "No se pudieron cargar las instituciones.",
-          )
-        }
-
-        if (!sectionsResponse.ok) {
+        if (!response.ok) {
           throw new Error(
             "No se pudieron cargar los circuitos de Capital.",
           )
         }
 
-        const incidencesData =
-          (await incidencesResponse.json()) as IncidenceApiResponse[]
+        const data = (await response.json()) as SectionGeoJSON
 
-        const institutionsData =
-          (await institutionsResponse.json()) as Institution[]
-
-        const sectionsData =
-          (await sectionsResponse.json()) as SectionGeoJSON
-
-        if (controller.signal.aborted) {
-          return
+        if (!controller.signal.aborted) {
+          setSections(data)
         }
-
-        const mappedIncidences: Incidence[] =
-          incidencesData.map((item) => {
-            const dimension =
-              dimensions.find(
-                (candidate) =>
-                  candidate.title ===
-                  item.dimension.name,
-              )
-
-            const indicator = dimension?.indicators.find(
-              (candidate) =>
-                candidate.id === item.indicator.id ||
-                candidate.title === item.indicator.name,
-            )
-
-            const urgency = item.response.urgency
-
-            const criticality: Criticality =
-              urgency
-                ? urgency === "alto"
-                  ? "alta"
-                  : urgency === "medio"
-                    ? "media"
-                    : "baja"
-                : "sin-relevamiento"
-
-            return {
-              ...item,
-              criticality,
-              dimensionNumber: dimension?.number ?? "",
-              dimensionTitle:
-                dimension?.title ??
-                item.dimension.name ??
-                "Dimensión no disponible",
-              indicatorTitle:
-                indicator?.title ??
-                item.indicator.name ??
-                "Indicador no disponible",
-              indicatorDescription:
-                indicator?.description ??
-                "Sin descripción disponible.",
-            }
-          })
-
-        setIncidences(mappedIncidences)
-        setInstitutions(institutionsData)
-        setSections(sectionsData)
-      } catch (err) {
-        if (controller.signal.aborted) {
-          return
-        }
+      } catch (error) {
+        if (controller.signal.aborted) return
 
         console.error(
-          "Error al cargar incidencias",
-          err,
+          "Error al cargar los circuitos de Capital",
+          error,
         )
-
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Ocurrió un error al cargar los datos.",
-        )
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false)
-        }
       }
     }
 
-    void loadData()
+    void loadSections()
 
     return () => {
       controller.abort()
@@ -1329,13 +1294,13 @@ export default function IncidenciasPage() {
           </span>
         </div>
 
-        {loading ? (
+        {incidencesLoading || institutionsLoading ? (
           <p className="muted">
             Cargando incidencias...
           </p>
-        ) : error ? (
+        ) : dataError ? (
           <p>
-            {error}
+            {dataError}
           </p>
         ) : filteredIncidences.length === 0 ? (
           <p className="muted">
