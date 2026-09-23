@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
-import useSWR from "swr"
+import useSWR, { mutate } from "swr"
 
 import { fetcher } from "@/lib/fetcher"
 import {
@@ -156,6 +156,27 @@ export default function InstitutionsPage() {
   )
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const [editingInstitution, setEditingInstitution] =
+    useState<Institution | null>(null)
+
+  const [directivoNombre, setDirectivoNombre] =
+    useState("")
+
+  const [sinDirectivoAsignado, setSinDirectivoAsignado] =
+    useState(false)
+
+  const [telefono, setTelefono] =
+    useState<string[]>([])
+
+  const [email, setEmail] =
+    useState<string[]>([])
+
+  const [savingInstitution, setSavingInstitution] =
+    useState(false)
+
+  const [institutionSaveError, setInstitutionSaveError] =
+    useState<string | null>(null)
 
   const [searchQuery, setSearchQuery] = useState("")
 
@@ -483,6 +504,91 @@ export default function InstitutionsPage() {
     setCriticalityFilter("todas")
   }
 
+  const openInstitutionEditor = (
+    institution: Institution,
+  ) => {
+    const currentDirectivo =
+      institution.directivo?.nombre?.trim() ?? ""
+
+    const hasNoDirectivo =
+      currentDirectivo === "Sin directivo asignado"
+
+    setEditingInstitution(institution)
+    setDirectivoNombre(
+      hasNoDirectivo ? "" : currentDirectivo,
+    )
+    setSinDirectivoAsignado(hasNoDirectivo)
+    setTelefono([...institution.telefono])
+    setEmail([...institution.email])
+    setInstitutionSaveError(null)
+  }
+
+  const closeInstitutionEditor = () => {
+    if (savingInstitution) return
+
+    setEditingInstitution(null)
+    setInstitutionSaveError(null)
+  }
+
+  const directivoIsValid =
+    sinDirectivoAsignado ||
+    directivoNombre.trim().length > 0
+
+  const handleSaveInstitution = async () => {
+    if (!editingInstitution) return
+
+    if (!directivoIsValid) {
+      setInstitutionSaveError(
+        "Indique el nombre del directivo o confirme que actualmente el establecimiento no tiene directivo asignado.",
+      )
+      return
+    }
+
+    setSavingInstitution(true)
+    setInstitutionSaveError(null)
+
+    try {
+      const response = await fetch(
+        `/api/institutions/${editingInstitution.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            telefono,
+            email,
+            directivoNombre: sinDirectivoAsignado
+              ? ""
+              : directivoNombre.trim(),
+            sinDirectivoAsignado,
+          }),
+        },
+      )
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ??
+            "No se pudieron guardar los cambios.",
+        )
+      }
+
+      await mutate("/api/institutions")
+      setEditingInstitution(null)
+      setInstitutionSaveError(null)
+    } catch (error) {
+      setInstitutionSaveError(
+        error instanceof Error
+          ? error.message
+          : "No se pudieron guardar los cambios.",
+      )
+    } finally {
+      setSavingInstitution(false)
+    }
+  }
+
   return (
     <main className="shell">
       <style jsx>{`
@@ -579,6 +685,216 @@ export default function InstitutionsPage() {
           line-height: 1.5;
         }
 
+        .context-header-actions {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          flex-shrink: 0;
+        }
+
+        .institution-editor-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 9999;
+          display: flex;
+          justify-content: flex-end;
+          background: rgba(35, 12, 15, 0.34);
+        }
+
+        .institution-editor-panel {
+          width: min(520px, 100%);
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          background: #f7f5f0;
+          box-shadow: -12px 0 40px rgba(35, 12, 15, 0.2);
+          overflow: hidden;
+        }
+
+        .institution-editor-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 1rem;
+          padding: 1.5rem 1.5rem 1.2rem;
+          background: #ffffff;
+          border-bottom: 1px solid #e3e0e6;
+        }
+
+        .institution-editor-header h2 {
+          margin: 0.2rem 0 0.35rem;
+          font-size: 1.2rem;
+          line-height: 1.35;
+        }
+
+        .institution-editor-close {
+          width: 36px;
+          height: 36px;
+          border: 0;
+          border-radius: 8px;
+          background: transparent;
+          color: #52606a;
+          font-size: 1.7rem;
+          line-height: 1;
+          cursor: pointer;
+        }
+
+        .institution-editor-close:hover {
+          background: #f0eeea;
+          color: #230c0f;
+        }
+
+        .institution-editor-body {
+          flex: 1;
+          overflow-y: auto;
+          padding: 1.4rem 1.5rem 2rem;
+        }
+
+        .institution-editor-section {
+          display: grid;
+          gap: 1rem;
+          padding: 1.15rem 0;
+        }
+
+        .institution-editor-section + .institution-editor-section {
+          border-top: 1px solid #ddd9d2;
+        }
+
+        .institution-editor-section-heading h3 {
+          margin: 0;
+          font-size: 0.86rem;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: #52606a;
+        }
+
+        .institution-editor-field {
+          display: grid;
+          gap: 0.45rem;
+        }
+
+        .institution-editor-field > span {
+          font-size: 0.82rem;
+          font-weight: 700;
+          color: #230c0f;
+        }
+
+        .institution-editor-field input,
+        .institution-editor-field textarea {
+          width: 100%;
+          box-sizing: border-box;
+          border: 1px solid #cfcac2;
+          border-radius: 8px;
+          background: #ffffff;
+          color: #230c0f;
+          font: inherit;
+          font-size: 0.9rem;
+          padding: 0.75rem 0.85rem;
+          outline: none;
+          transition:
+            border-color 0.15s ease,
+            box-shadow 0.15s ease,
+            background 0.15s ease;
+        }
+
+        .institution-editor-field textarea {
+          resize: vertical;
+          min-height: 84px;
+        }
+
+        .institution-editor-field input:focus,
+        .institution-editor-field textarea:focus {
+          border-color: #b08a3e;
+          box-shadow: 0 0 0 3px rgba(176, 138, 62, 0.12);
+        }
+
+        .institution-editor-field input:disabled,
+        .institution-editor-field textarea:disabled {
+          background: #ebe9e5;
+          color: #7a7772;
+          cursor: not-allowed;
+        }
+
+        .institution-editor-field small {
+          color: #667077;
+          font-size: 0.74rem;
+        }
+
+        .institution-editor-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid #d8d4cd;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.institution-editor-checkbox input[type="checkbox"] {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  flex: 0 0 18px;
+  accent-color: #b08a3e;
+  cursor: pointer;
+}
+
+.institution-editor-checkbox span {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #230c0f;
+}
+
+        .institution-editor-checkbox input {
+          margin-top: 0.18rem;
+          flex-shrink: 0;
+          accent-color: #b08a3e;
+        }
+
+        .institution-editor-checkbox span {
+          font-size: 0.82rem;
+          line-height: 1.45;
+          color: #230c0f;
+        }
+
+        .institution-editor-validation {
+          margin: 0;
+          padding: 0.75rem 0.85rem;
+          border-left: 3px solid #b08a3e;
+          background: #f1eee7;
+          color: #52606a;
+          font-size: 0.8rem;
+          line-height: 1.45;
+        }
+
+        .institution-editor-error {
+          margin-top: 0.5rem;
+          padding: 0.8rem 0.9rem;
+          border: 1px solid #e1b6b6;
+          border-left: 4px solid #b3111f;
+          border-radius: 6px;
+          background: #faf0f0;
+          color: #7d1f1f;
+          font-size: 0.82rem;
+          line-height: 1.45;
+        }
+
+        .institution-editor-footer {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.7rem;
+          padding: 1rem 1.5rem;
+          background: #ffffff;
+          border-top: 1px solid #e3e0e6;
+        }
+
         @media (max-width: 640px) {
           .institution-incidence-heading {
             flex-direction: column;
@@ -586,6 +902,22 @@ export default function InstitutionsPage() {
 
           .institution-incidence-status {
             align-self: flex-start;
+          }
+
+          .context-header-actions {
+            width: 100%;
+            justify-content: flex-end;
+          }
+
+          .institution-editor-panel {
+            width: 100%;
+          }
+
+          .institution-editor-header,
+          .institution-editor-body,
+          .institution-editor-footer {
+            padding-left: 1rem;
+            padding-right: 1rem;
           }
         }
       `}</style>
@@ -1051,15 +1383,27 @@ export default function InstitutionsPage() {
                         <h2>{institution.name}</h2>
                       </div>
 
-                      <button
-                        type="button"
-                        className="context-close"
-                        onClick={() =>
-                          setExpandedId(null)
-                        }
-                      >
-                        Cerrar
-                      </button>
+                      <div className="context-header-actions">
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() =>
+                            openInstitutionEditor(institution)
+                          }
+                        >
+                          Editar datos
+                        </button>
+
+                        <button
+                          type="button"
+                          className="context-close"
+                          onClick={() =>
+                            setExpandedId(null)
+                          }
+                        >
+                          Cerrar
+                        </button>
+                      </div>
                     </div>
 
                     <div className="context-info-grid">
@@ -1541,6 +1885,65 @@ export default function InstitutionsPage() {
           },
         )}
       </section>
+
+      {editingInstitution && (
+        <div className="institution-editor-overlay" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !savingInstitution) closeInstitutionEditor()
+        }}>
+          <aside className="institution-editor-panel" role="dialog" aria-modal="true" aria-labelledby="institution-editor-title">
+            <div className="institution-editor-header">
+              <div>
+                <p className="eyebrow">EDITAR DATOS INSTITUCIONALES</p>
+                <h2 id="institution-editor-title">{editingInstitution.name}</h2>
+                <p className="muted">CUE: {editingInstitution.cue}</p>
+              </div>
+              <button type="button" className="institution-editor-close" onClick={closeInstitutionEditor} disabled={savingInstitution} aria-label="Cerrar edición">×</button>
+            </div>
+
+            <div className="institution-editor-body">
+              <section className="institution-editor-section">
+                <div className="institution-editor-section-heading"><h3>Ubicación y contacto</h3></div>
+                <label className="institution-editor-field">
+                  <span>Teléfonos</span>
+                  <textarea value={telefono.join("\n")} onChange={(event) => setTelefono(event.target.value.split("\n").map((value) => value.trim()).filter(Boolean))} placeholder="Un teléfono por línea" rows={3} disabled={savingInstitution} />
+                  <small>Ingrese un teléfono por línea.</small>
+                </label>
+                <label className="institution-editor-field">
+                  <span>Emails</span>
+                  <textarea value={email.join("\n")} onChange={(event) => setEmail(event.target.value.split("\n").map((value) => value.trim()).filter(Boolean))} placeholder="Un email por línea" rows={3} disabled={savingInstitution} />
+                  <small>Ingrese un email por línea.</small>
+                </label>
+              </section>
+
+              <section className="institution-editor-section">
+                <div className="institution-editor-section-heading"><h3>Autoridades</h3></div>
+                <label className="institution-editor-field">
+                  <span>Directivo/a vigente</span>
+                  <input type="text" value={directivoNombre} onChange={(event) => setDirectivoNombre(event.target.value)} disabled={sinDirectivoAsignado || savingInstitution} placeholder="Nombre y apellido" />
+                </label>
+                <label className="institution-editor-checkbox">
+                  <input type="checkbox" checked={sinDirectivoAsignado} disabled={savingInstitution} onChange={(event) => { const checked = event.target.checked; setSinDirectivoAsignado(checked); if (checked) setDirectivoNombre("") }} />
+                  <span>Actualmente el establecimiento no tiene directivo asignado.</span>
+                </label>
+                {!directivoIsValid && (
+                  <p className="institution-editor-validation">Debe indicar un directivo o confirmar que actualmente no hay directivo asignado.</p>
+                )}
+              </section>
+
+              {institutionSaveError && (
+                <div className="institution-editor-error" role="alert">{institutionSaveError}</div>
+              )}
+            </div>
+
+            <div className="institution-editor-footer">
+              <button type="button" className="secondary-button" onClick={closeInstitutionEditor} disabled={savingInstitution}>Cancelar</button>
+              <button type="button" className="primary-button" onClick={handleSaveInstitution} disabled={savingInstitution || !directivoIsValid}>
+                {savingInstitution ? "Guardando..." : "Guardar cambios"}
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
     </main>
   )
 }

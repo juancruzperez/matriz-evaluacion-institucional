@@ -21,6 +21,7 @@ const permissionMap: Record<string, Permission> = {
   close_evaluations: "evaluation:close",
   manage_configuration: "admin:manage",
   manage_users: "admin:users",
+  institution_update: "institution:update",
 }
 
 export async function getUserAuthorization(

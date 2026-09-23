@@ -6,22 +6,24 @@ export const rolePermissions: Record<
   Permission[]
 > = {
   responsable_territorial: [
-    "evaluation:read",
-    "evaluation:create",
-    "evaluation:update",
-    "evaluation:close",
-  ],
+  "evaluation:read",
+  "evaluation:create",
+  "evaluation:update",
+  "evaluation:close",
+  "institution:update",
+],
 
-  responsable_institucional: [
-    "evaluation:read",
-  ],
+responsable_institucional: [
+  "evaluation:read",
+],
 
-  admin: [
-    "evaluation:read",
-    "evaluation:create",
-    "evaluation:update",
-    "evaluation:close",
-    "admin:manage",
-    "admin:users",
-  ],
+admin: [
+  "evaluation:read",
+  "evaluation:create",
+  "evaluation:update",
+  "evaluation:close",
+  "institution:update",
+  "admin:manage",
+  "admin:users",
+],
 }
