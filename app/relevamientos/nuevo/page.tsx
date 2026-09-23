@@ -10,8 +10,10 @@ import {
 } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useSession } from "next-auth/react"
+import useSWR from "swr"
 import type { Institution } from "@/types/institution"
 import { dimensions } from "@/lib/evaluation-template"
+import { fetcher } from "@/lib/fetcher"
 import {
   createEvaluationResponse,
   getEvaluationResponse,
@@ -144,8 +146,34 @@ function NewEvaluationContent() {
       createEvaluation(),
     )
 
-  const [institutions, setInstitutions] =
-    useState<Institution[]>([])
+  const {
+    data: institutionsData,
+    error: institutionsError,
+    isLoading: institutionsLoading,
+  } = useSWR<Institution[]>(
+    "/api/institutions",
+    fetcher,
+  )
+
+  const {
+    data: evaluationsData,
+    error: evaluationsError,
+    isLoading: evaluationsLoading,
+    mutate: mutateEvaluations,
+  } = useSWR<Evaluation[]>(
+    "/api/evaluations",
+    fetcher,
+  )
+
+  const institutions = useMemo(
+  () => institutionsData ?? [],
+  [institutionsData],
+)
+
+const evaluations = useMemo(
+  () => evaluationsData ?? [],
+  [evaluationsData],
+)
 
   const [persisted, setPersisted] =
   useState(false)
@@ -192,54 +220,6 @@ const [isSaving, setIsSaving] =
 
   const [loadError, setLoadError] =
     useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadInstitutions() {
-      try {
-        const { response, data } =
-          await requestJson<Institution[]>(
-            "/api/institutions",
-            {
-              cache: "no-store",
-            },
-          )
-
-        if (!response.ok) {
-          throw new Error(
-            "No se pudieron cargar las instituciones.",
-          )
-        }
-
-        if (cancelled) return
-
-        setInstitutions(
-          data as Institution[],
-        )
-      } catch (error) {
-        if (cancelled) return
-
-        console.error(
-          "Error al cargar instituciones",
-          error,
-        )
-
-        setLoadError(
-          getApiErrorMessage(
-            error,
-            "No se pudieron cargar las instituciones.",
-          ),
-        )
-      }
-    }
-
-    void loadInstitutions()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   /*
    * Carga de un relevamiento existente.
@@ -318,6 +298,19 @@ const [isSaving, setIsSaving] =
     const institutionId =
       institutionParam
 
+    if (institutionsLoading || evaluationsLoading) {
+      return
+    }
+
+    if (institutionsError || evaluationsError) {
+      startTransition(() => {
+        setLoadError(
+          "No se pudieron cargar los datos necesarios para iniciar el relevamiento.",
+        )
+      })
+      return
+    }
+
     if (institutions.length === 0) {
       return
     }
@@ -341,20 +334,6 @@ const [isSaving, setIsSaving] =
       try {
         setLoadingEvaluation(true)
         setLoadError(null)
-
-        const { response, data } =
-          await requestJson<Evaluation[]>(
-            "/api/evaluations",
-          )
-
-        if (!response.ok) {
-          throw new Error(
-            "No se pudieron consultar los relevamientos.",
-          )
-        }
-
-        const evaluations =
-          data as Evaluation[]
 
         const openEvaluation =
           evaluations.find(
@@ -411,87 +390,97 @@ const [isSaving, setIsSaving] =
     }
 
     void checkOpenEvaluation()
-  }, [searchParams, router, institutions])
+  }, [
+    searchParams,
+    router,
+    institutions,
+    evaluations,
+    institutionsLoading,
+    evaluationsLoading,
+    institutionsError,
+    evaluationsError,
+  ])
 
   async function handleInstitutionChange(
-  selected: Institution | null,
-) {
-  if (readOnly) {
-    return
-  }
-
-  if (!selected) {
-    setEvaluation((current) => ({
-      ...current,
-      institutionId: "",
-      institutionLevelId: null,
-    }))
-
-    setPersisted(false)
-    setLoadError(null)
-
-    return
-  }
-
-  try {
-    setLoadingEvaluation(true)
-    setLoadError(null)
-
-    const { response, data } =
-      await requestJson<Evaluation[]>(
-        "/api/evaluations",
-      )
-
-    if (!response.ok) {
-      throw new Error(
-        "No se pudieron consultar los relevamientos.",
-      )
+    selected: Institution | null,
+  ) {
+    if (readOnly) {
+      return
     }
 
-    const evaluations =
-      data as Evaluation[]
+    if (!selected) {
+      setEvaluation((current) => ({
+        ...current,
+        institutionId: "",
+        institutionLevelId: null,
+      }))
 
-    const openEvaluation =
-      evaluations.find(
-        (item) =>
-          item.institutionId === selected.id &&
-          item.status !== "closed",
-      )
-
-    if (openEvaluation) {
-      setRedirectingToOpenEvaluation(true)
-
-      router.replace(
-        `/relevamientos/nuevo?evaluation=${openEvaluation.id}`,
-      )
+      setPersisted(false)
+      setLoadError(null)
 
       return
     }
 
-    setEvaluation((current) => ({
-      ...current,
-      institutionId: selected.id,
-      institutionLevelId: null,
-      status: "draft",
-    }))
+    setLoadError(null)
 
-    setPersisted(false)
-  } catch (error) {
-    console.error(
-      "Error al verificar relevamiento abierto",
-      error,
-    )
+    if (evaluationsLoading) {
+      setLoadError(
+        "Los relevamientos todavía se están cargando. Intentá nuevamente en unos segundos.",
+      )
+      return
+    }
 
-    setLoadError(
-      getApiErrorMessage(
+    if (evaluationsError) {
+      setLoadError(
+        "No se pudieron consultar los relevamientos.",
+      )
+      return
+    }
+
+    setLoadingEvaluation(true)
+
+    try {
+      const openEvaluation =
+        evaluations.find(
+          (item) =>
+            item.institutionId === selected.id &&
+            item.status !== "closed",
+        )
+
+      if (openEvaluation) {
+        setRedirectingToOpenEvaluation(true)
+
+        router.replace(
+          `/relevamientos/nuevo?evaluation=${openEvaluation.id}`,
+        )
+
+        return
+      }
+
+      setEvaluation((current) => ({
+        ...current,
+        institutionId: selected.id,
+        institutionLevelId: null,
+        status: "draft",
+      }))
+
+      setPersisted(false)
+    } catch (error) {
+      console.error(
+        "Error al verificar relevamiento abierto",
         error,
-        "No se pudo verificar si la institución tiene un relevamiento abierto.",
-      ),
-    )
-  } finally {
-    setLoadingEvaluation(false)
+      )
+
+      setLoadError(
+        getApiErrorMessage(
+          error,
+          "No se pudo verificar si la institución tiene un relevamiento abierto.",
+        ),
+      )
+    } finally {
+      setLoadingEvaluation(false)
+    }
   }
-}
 
   const institution =
     institutions.find(
@@ -740,6 +729,7 @@ const readOnly =
 
       setEvaluation(saved)
       setPersisted(true)
+      void mutateEvaluations()
 
       alert(
         `Relevamiento guardado · versión ${saved.version}`,
@@ -933,6 +923,7 @@ const readOnly =
 
     setEvaluation(closedEvaluation)
     setPersisted(true)
+    void mutateEvaluations()
 
     alert(
       `Relevamiento cerrado · versión ${closedEvaluation.version}`,
@@ -966,6 +957,7 @@ if (
       if (serverEvaluation.status === "closed") {
         setEvaluation(serverEvaluation)
         setPersisted(true)
+        void mutateEvaluations()
 
         alert(
           `Relevamiento cerrado · versión ${serverEvaluation.version}`,
@@ -998,6 +990,41 @@ if (
    * un overlay de carga. Esto evita que el usuario
    * perciba una navegación entre formularios.
    */
+  if (!loadError && (institutionsError || evaluationsError)) {
+    return (
+      <main className="shell narrow">
+        <section className="form-card">
+          <p className="eyebrow">
+            RELEVAMIENTO INSTITUCIONAL
+          </p>
+
+          <h1>No se pudieron cargar los datos</h1>
+
+          <p className="muted">
+            No fue posible cargar instituciones o relevamientos.
+          </p>
+
+          <div className="save-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => window.location.reload()}
+            >
+              Reintentar
+            </button>
+
+            <Link
+              className="primary-button"
+              href="/instituciones"
+            >
+              Volver a instituciones
+            </Link>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   if (loadError) {
     return (
       <main className="shell narrow">

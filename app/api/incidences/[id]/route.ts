@@ -1,7 +1,18 @@
+import {
+  Pool,
+} from "@neondatabase/serverless"
+
 import { sql } from "@/lib/db"
 import { requirePermission } from "@/lib/require-permission"
 
-type IncidenceStatus = "open" | "resolved"
+type IncidenceStatus =
+  | "open"
+  | "resolved"
+
+type IncidenceUrgency =
+  | "alto"
+  | "medio"
+  | "bajo"
 
 type IncidenceRow = {
   id: string
@@ -16,10 +27,19 @@ type IncidenceRow = {
   updated_at: string
   updated_by: string
 
-  urgency: "alto" | "medio" | "bajo" | null
+  urgency:
+    | IncidenceUrgency
+    | null
+
+  current_urgency:
+    IncidenceUrgency
+
   observation: string
   strengths: string | null
-  fields: Record<string, string | string[]> | null
+  fields: Record<
+    string,
+    string | string[]
+  > | null
 
   evaluation_date: string
   evaluation_closed_at: string | null
@@ -34,23 +54,39 @@ type IncidenceRow = {
   dimension_name: string | null
 }
 
-function mapIncidence(row: IncidenceRow) {
+function mapIncidence(
+  row: IncidenceRow,
+) {
   return {
     id: row.id,
+
     evaluationResponseId:
       row.evaluation_response_id,
-    evaluationId: row.evaluation_id,
-    institutionId: row.institution_id,
+
+    evaluationId:
+      row.evaluation_id,
+
+    institutionId:
+      row.institution_id,
 
     status: row.status,
+
     resolutionDescription:
       row.resolution_description,
 
     createdAt: row.created_at,
-    resolvedAt: row.resolved_at,
-    resolvedBy: row.resolved_by,
-    updatedAt: row.updated_at,
-    updatedBy: row.updated_by,
+
+    resolvedAt:
+      row.resolved_at,
+
+    resolvedBy:
+      row.resolved_by,
+
+    updatedAt:
+      row.updated_at,
+
+    updatedBy:
+      row.updated_by,
 
     response: {
       urgency: row.urgency,
@@ -59,17 +95,23 @@ function mapIncidence(row: IncidenceRow) {
       fields: row.fields,
     },
 
+    currentUrgency:
+      row.current_urgency,
+
     evaluation: {
       date: row.evaluation_date,
-      closedAt: row.evaluation_closed_at,
+      closedAt:
+        row.evaluation_closed_at,
     },
 
     institution: {
       id: row.institution_id,
       name: row.institution_name,
       cue: row.institution_cue,
-      localidad: row.institution_localidad,
-      departamento: row.institution_departamento,
+      localidad:
+        row.institution_localidad,
+      departamento:
+        row.institution_departamento,
     },
 
     indicator: {
@@ -101,6 +143,8 @@ async function loadIncidence(
       inc.updated_by,
 
       er.urgency,
+      inc.current_urgency,
+
       er.observation,
       er.strengths,
       er.fields,
@@ -148,9 +192,10 @@ export async function GET(
     params: Promise<{ id: string }>
   },
 ) {
-  const authorization = await requirePermission(
-    "evaluation:read",
-  )
+  const authorization =
+    await requirePermission(
+      "evaluation:read",
+    )
 
   if (!authorization.authorized) {
     return Response.json(
@@ -166,7 +211,8 @@ export async function GET(
     )
   }
 
-  const { id } = await context.params
+  const { id } =
+    await context.params
 
   const incidence =
     await loadIncidence(id)
@@ -234,7 +280,8 @@ export async function PATCH(
     )
   }
 
-  const { id } = await context.params
+  const { id } =
+    await context.params
 
   const incidence =
     await loadIncidence(id)
@@ -253,7 +300,7 @@ export async function PATCH(
   /*
    * Seguridad territorial:
    * un responsable territorial solamente
-   * puede resolver incidencias de su
+   * puede gestionar incidencias de su
    * departamento.
    */
   if (
@@ -272,7 +319,13 @@ export async function PATCH(
     )
   }
 
-  if (incidence.status === "resolved") {
+  /*
+   * Las incidencias resueltas quedan
+   * cerradas y no pueden modificarse.
+   */
+  if (
+    incidence.status === "resolved"
+  ) {
     return Response.json(
       {
         error:
@@ -305,7 +358,8 @@ export async function PATCH(
   ) {
     return Response.json(
       {
-        error: "Invalid incidence payload",
+        error:
+          "Invalid incidence payload",
       },
       {
         status: 400,
@@ -316,8 +370,115 @@ export async function PATCH(
   const input =
     body as Record<string, unknown>
 
+  const hasCurrentUrgency =
+    Object.prototype.hasOwnProperty.call(
+      input,
+      "currentUrgency",
+    )
+
+  const hasStatus =
+    Object.prototype.hasOwnProperty.call(
+      input,
+      "status",
+    )
+
+  const hasResolutionDescription =
+    Object.prototype.hasOwnProperty.call(
+      input,
+      "resolutionDescription",
+    )
+
+  const hasReason =
+    Object.prototype.hasOwnProperty.call(
+      input,
+      "reason",
+    )
+
+  /*
+   * Debe existir al menos una operación.
+   */
   if (
-    input.status !== "resolved"
+    !hasCurrentUrgency &&
+    !hasStatus &&
+    !hasResolutionDescription
+  ) {
+    return Response.json(
+      {
+        error:
+          "No se proporcionaron cambios para actualizar.",
+      },
+      {
+        status: 400,
+      },
+    )
+  }
+
+  /*
+   * Validación de la nueva urgencia.
+   */
+  let currentUrgency:
+    | IncidenceUrgency
+    | undefined
+
+  if (hasCurrentUrgency) {
+    if (
+      input.currentUrgency !==
+        "alto" &&
+      input.currentUrgency !==
+        "medio" &&
+      input.currentUrgency !==
+        "bajo"
+    ) {
+      return Response.json(
+        {
+          error:
+            "La urgencia actual debe ser 'alto', 'medio' o 'bajo'.",
+        },
+        {
+          status: 400,
+        },
+      )
+    }
+
+    currentUrgency =
+      input.currentUrgency
+  }
+
+  /*
+   * Validación del motivo del cambio.
+   */
+  let reason: string | null = null
+
+  if (hasReason) {
+    if (
+      typeof input.reason !==
+        "string"
+    ) {
+      return Response.json(
+        {
+          error:
+            "El motivo del cambio debe ser texto.",
+        },
+        {
+          status: 400,
+        },
+      )
+    }
+
+    reason =
+      input.reason.trim() || null
+  }
+
+  const requestedStatus =
+    input.status
+
+  /*
+   * Actualmente solamente permitimos
+   * la transición open → resolved.
+   */
+  if (
+    requestedStatus !== undefined &&
+    requestedStatus !== "resolved"
   ) {
     return Response.json(
       {
@@ -330,15 +491,21 @@ export async function PATCH(
     )
   }
 
+  const isResolving =
+    requestedStatus === "resolved"
+
+  /*
+   * La descripción solamente es válida
+   * cuando se está resolviendo.
+   */
   if (
-    typeof input.resolutionDescription !==
-      "string" ||
-    input.resolutionDescription.trim() === ""
+    hasResolutionDescription &&
+    !isResolving
   ) {
     return Response.json(
       {
         error:
-          "La descripción de resolución es obligatoria.",
+          "La descripción de resolución solamente puede enviarse al resolver la incidencia.",
       },
       {
         status: 400,
@@ -346,67 +513,241 @@ export async function PATCH(
     )
   }
 
-  const resolutionDescription =
-    input.resolutionDescription.trim()
+  let resolutionDescription:
+    | string
+    | null = null
+
+  if (isResolving) {
+    if (
+      typeof input.resolutionDescription !==
+        "string" ||
+      input.resolutionDescription.trim() ===
+        ""
+    ) {
+      return Response.json(
+        {
+          error:
+            "La descripción de resolución es obligatoria.",
+        },
+        {
+          status: 400,
+        },
+      )
+    }
+
+    resolutionDescription =
+      input.resolutionDescription.trim()
+  }
+
+  /*
+   * Si se envía una urgencia, determinamos
+   * si realmente cambió.
+   */
+  const urgencyChanged =
+    currentUrgency !== undefined &&
+    currentUrgency !==
+      incidence.current_urgency
+
+  /*
+   * No tiene sentido ejecutar un PATCH
+   * que no cambie nada.
+   */
+  if (
+    !urgencyChanged &&
+    !isResolving
+  ) {
+    return Response.json(
+      {
+        error:
+          "La urgencia indicada coincide con la urgencia actual.",
+      },
+      {
+        status: 400,
+      },
+    )
+  }
 
   const userId =
     authorization.session.user.id
 
-  try {
-    const updatedRows = (await sql`
-      UPDATE incidences
-      SET
-        status = 'resolved',
-        resolution_description =
-          ${resolutionDescription},
-        resolved_at = NOW(),
-        resolved_by = ${userId},
-        updated_at = NOW(),
-        updated_by = ${userId}
-      WHERE id = ${id}
-        AND status = 'open'
-      RETURNING
-        id,
-        evaluation_response_id,
-        evaluation_id,
-        institution_id,
-        status,
-        resolution_description,
-        created_at,
-        resolved_at,
-        resolved_by,
-        updated_at,
-        updated_by
-    `) as {
-      id: string
-      evaluation_response_id: string
-      evaluation_id: string
-      institution_id: string
-      status: IncidenceStatus
-      resolution_description: string | null
-      created_at: string
-      resolved_at: string | null
-      resolved_by: string | null
-      updated_at: string
-      updated_by: string
-    }[]
+  const databaseUrl =
+    process.env.DATABASE_URL
 
-    if (updatedRows.length === 0) {
+  if (!databaseUrl) {
+    return Response.json(
+      {
+        error:
+          "DATABASE_URL is not configured",
+      },
+      {
+        status: 500,
+      },
+    )
+  }
+
+  const pool = new Pool({
+    connectionString:
+      databaseUrl,
+  })
+
+  const client =
+    await pool.connect()
+
+  try {
+    await client.query(
+      "BEGIN",
+    )
+
+    /*
+     * 1. Actualizar urgencia actual.
+     */
+    if (urgencyChanged) {
+      const updateResult =
+        await client.query(
+          `
+            UPDATE incidences
+            SET
+              current_urgency = $1,
+              updated_at = NOW(),
+              updated_by = $2
+            WHERE id = $3
+              AND status = 'open'
+          `,
+          [
+            currentUrgency,
+            userId,
+            id,
+          ],
+        )
+
+      if (
+        updateResult.rowCount !== 1
+      ) {
+        throw new Error(
+          "INCIDENCE_UPDATE_CONFLICT",
+        )
+      }
+
+      /*
+       * 2. Registrar el cambio histórico.
+       */
+      await client.query(
+        `
+          INSERT INTO incidence_urgency_history (
+            id,
+            incidence_id,
+            previous_urgency,
+            new_urgency,
+            changed_at,
+            changed_by,
+            reason
+          )
+          VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            NOW(),
+            $5,
+            $6
+          )
+        `,
+        [
+          crypto.randomUUID(),
+          id,
+          incidence.current_urgency,
+          currentUrgency,
+          userId,
+          reason,
+        ],
+      )
+    }
+
+    /*
+     * 3. Resolver la incidencia si corresponde.
+     */
+    if (isResolving) {
+      const resolveResult =
+        await client.query(
+          `
+            UPDATE incidences
+            SET
+              status = 'resolved',
+              resolution_description = $1,
+              resolved_at = NOW(),
+              resolved_by = $2,
+              updated_at = NOW(),
+              updated_by = $2
+            WHERE id = $3
+              AND status = 'open'
+          `,
+          [
+            resolutionDescription,
+            userId,
+            id,
+          ],
+        )
+
+      if (
+        resolveResult.rowCount !== 1
+      ) {
+        throw new Error(
+          "INCIDENCE_RESOLVE_CONFLICT",
+        )
+      }
+    }
+
+    await client.query(
+      "COMMIT",
+    )
+  } catch (error) {
+    try {
+      await client.query(
+        "ROLLBACK",
+      )
+    } catch (rollbackError) {
+      console.error(
+        "Failed to rollback incidence transaction",
+        rollbackError,
+      )
+    }
+
+    console.error(
+      "Failed to update incidence",
+      error,
+    )
+
+    if (
+      error instanceof Error &&
+      error.message ===
+        "INCIDENCE_UPDATE_CONFLICT"
+    ) {
       return Response.json(
         {
           error:
-            "La incidencia ya no está abierta.",
+            "La incidencia ya no está abierta o fue modificada por otro usuario.",
         },
         {
           status: 409,
         },
       )
     }
-  } catch (error) {
-    console.error(
-      "Failed to resolve incidence",
-      error,
-    )
+
+    if (
+      error instanceof Error &&
+      error.message ===
+        "INCIDENCE_RESOLVE_CONFLICT"
+    ) {
+      return Response.json(
+        {
+          error:
+            "La incidencia ya no está abierta o fue modificada por otro usuario.",
+        },
+        {
+          status: 409,
+        },
+      )
+    }
 
     if (
       error &&
@@ -417,7 +758,7 @@ export async function PATCH(
       return Response.json(
         {
           error:
-            "El usuario que intenta resolver la incidencia no es válido.",
+            "El usuario que intenta actualizar la incidencia no es válido.",
         },
         {
           status: 400,
@@ -428,12 +769,23 @@ export async function PATCH(
     return Response.json(
       {
         error:
-          "Unable to resolve incidence",
+          "Unable to update incidence",
       },
       {
         status: 500,
       },
     )
+  } finally {
+    client.release()
+
+    try {
+      await pool.end()
+    } catch (error) {
+      console.error(
+        "Failed to close incidence database pool",
+        error,
+      )
+    }
   }
 
   const updated =
@@ -443,7 +795,7 @@ export async function PATCH(
     return Response.json(
       {
         error:
-          "Incidence resolved but could not be loaded",
+          "Incidence updated but could not be loaded",
       },
       {
         status: 500,

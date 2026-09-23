@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
+import useSWR from "swr"
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon"
 
 import {
@@ -11,6 +12,7 @@ import {
 } from "@/lib/criticality"
 import type { Evaluation, Urgency } from "@/types/evaluation"
 import type { Institution } from "@/types/institution"
+import { fetcher } from "@/lib/fetcher"
 
 type TerritoryFilter =
   | "all"
@@ -48,7 +50,8 @@ const CRITICALITY_COLORS: Record<Criticality, string> = {
   baja: "#43AA8B",
   "sin-relevamiento": "#C1B8C8",
 }
-
+const EMPTY_EVALUATIONS: Evaluation[] = []
+const EMPTY_INSTITUTIONS: Institution[] = []
 
 function normalizeDepartmentName(
   value: string | null | undefined,
@@ -172,14 +175,29 @@ function getDateRange(
 }
 
 export default function RelevamientosPage() {
-  const [evaluations, setEvaluations] = useState<
-    Evaluation[]
-  >([])
+  const {
+    data: evaluationsData,
+    error: evaluationsError,
+    isLoading: evaluationsLoading,
+  } = useSWR<Evaluation[]>(
+    "/api/evaluations",
+    fetcher,
+  )
 
-  const [institutions, setInstitutions] = useState<
-    Institution[]
-  >([])
+  const {
+    data: institutionsData,
+    error: institutionsError,
+    isLoading: institutionsLoading,
+  } = useSWR<Institution[]>(
+    "/api/institutions",
+    fetcher,
+  )
 
+  const evaluations =
+  evaluationsData ?? EMPTY_EVALUATIONS
+
+const institutions =
+  institutionsData ?? EMPTY_INSTITUTIONS
   const [sections, setSections] =
     useState<SectionGeoJSON | null>(null)
 
@@ -203,65 +221,28 @@ export default function RelevamientosPage() {
   useEffect(() => {
     const controller = new AbortController()
 
-    const loadData = async () => {
+    const loadSections = async () => {
       try {
-        const [
-          evaluationsResponse,
-          institutionsResponse,
-          sectionsResponse,
-        ] = await Promise.all([
-          fetch("/api/evaluations", {
-            cache: "no-store",
+        const response = await fetch(
+          "/data/geography/capital-secciones.geojson",
+          {
             signal: controller.signal,
-          }),
+          },
+        )
 
-          fetch("/api/institutions", {
-            cache: "no-store",
-            signal: controller.signal,
-          }),
-
-          fetch(
-            "/data/geography/capital-secciones.geojson",
-            {
-              cache: "no-store",
-              signal: controller.signal,
-            },
-          ),
-        ])
-
-        if (!evaluationsResponse.ok) {
-          throw new Error(
-            "No se pudieron cargar los relevamientos.",
-          )
-        }
-
-        if (!institutionsResponse.ok) {
-          throw new Error(
-            "No se pudieron cargar las instituciones.",
-          )
-        }
-
-        if (!sectionsResponse.ok) {
+        if (!response.ok) {
           throw new Error(
             "No se pudieron cargar los circuitos de Capital.",
           )
         }
 
-        const evaluationsData =
-          (await evaluationsResponse.json()) as Evaluation[]
-
-        const institutionsData =
-          (await institutionsResponse.json()) as Institution[]
-
         const sectionsData =
-          (await sectionsResponse.json()) as SectionGeoJSON
+          (await response.json()) as SectionGeoJSON
 
         if (controller.signal.aborted) {
           return
         }
 
-        setEvaluations(evaluationsData)
-        setInstitutions(institutionsData)
         setSections(sectionsData)
       } catch (error) {
         if (controller.signal.aborted) {
@@ -269,22 +250,21 @@ export default function RelevamientosPage() {
         }
 
         console.error(
-          "Error al cargar relevamientos e instituciones",
+          "Error al cargar los circuitos de Capital",
           error,
         )
 
-        setEvaluations([])
-        setInstitutions([])
         setSections(null)
       }
     }
 
-    void loadData()
+    void loadSections()
 
     return () => {
       controller.abort()
     }
   }, [])
+
 
   const filteredInstitutions = useMemo(() => {
     const normalized = query
@@ -708,6 +688,22 @@ const result = Array.from(
           Nuevo relevamiento
         </Link>
       </header>
+
+      {(evaluationsLoading || institutionsLoading) && (
+        <p className="muted">
+          Cargando relevamientos e instituciones...
+        </p>
+      )}
+
+      {(evaluationsError || institutionsError) && (
+        <p className="muted">
+          {evaluationsError instanceof Error
+            ? evaluationsError.message
+            : institutionsError instanceof Error
+              ? institutionsError.message
+              : "No se pudieron cargar los datos de relevamientos."}
+        </p>
+      )}
 
       <section className="form-card relevamientos-filters">
         <div className="section-heading">
