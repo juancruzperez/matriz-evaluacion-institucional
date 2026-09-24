@@ -650,6 +650,7 @@ export async function POST(
         evaluation_id,
         institution_id,
         status,
+        current_urgency,
         updated_by
       )
       SELECT
@@ -658,6 +659,7 @@ export async function POST(
         er.evaluation_id,
         e.institution_id,
         'open',
+        er.urgency,
         ${userId}
       FROM evaluation_responses er
       INNER JOIN evaluations e

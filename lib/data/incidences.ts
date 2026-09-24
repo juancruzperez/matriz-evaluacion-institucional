@@ -41,6 +41,7 @@ export type Incidence = {
   resolvedBy: string | null
   updatedAt: string
   updatedBy: string
+  updatedByName: string | null
 
   /**
    * Urgencia original registrada en la evaluación.
@@ -104,6 +105,7 @@ type IncidenceRow = {
   resolved_by: string | null
   updated_at: string
   updated_by: string
+  updated_by_name: string | null
 
   urgency:
     | IncidenceUrgency
@@ -154,7 +156,8 @@ function mapIncidenceRow(
     resolutionDescription:
       row.resolution_description,
 
-    createdAt: row.created_at,
+    createdAt:
+      row.created_at,
 
     resolvedAt:
       row.resolved_at,
@@ -167,6 +170,9 @@ function mapIncidenceRow(
 
     updatedBy:
       row.updated_by,
+
+    updatedByName:
+      row.updated_by_name,
 
     response: {
       urgency: row.urgency,
@@ -222,6 +228,8 @@ const incidenceSelect = sql`
     inc.updated_at,
     inc.updated_by,
 
+    u.name AS updated_by_name,
+
     er.urgency,
     inc.current_urgency,
 
@@ -269,6 +277,9 @@ const incidenceSelect = sql`
 
   INNER JOIN institutions i
     ON i.id = inc.institution_id
+
+  LEFT JOIN users u
+    ON u.id = inc.updated_by
 
   LEFT JOIN indicators ind
     ON ind.id = er.indicator_id

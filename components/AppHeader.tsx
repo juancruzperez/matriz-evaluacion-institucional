@@ -27,6 +27,11 @@ const menuItems = [
     icon: "e911_emergency",
   },
   {
+    href: "/informes",
+    label: "Informes",
+    icon: "summarize",
+  },
+  {
     href: "/administracion",
     label: "Administración",
     icon: "manage_accounts",
